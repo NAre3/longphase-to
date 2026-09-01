@@ -63,7 +63,7 @@ std::string usage(){
     return "usage: amber_port -loci <AmberGermlineSites.tsv.gz> "
            "-tumor_only_excluded_bed <tumorOnlyExcludedSnp.38.bed> -cpdump_dir <dir>\n"
            "                  [-tumor_bam <bam>] [-min_base_quality N] [-min_map_quality N]\n"
-           "                  [-output_dir <dir>] [-tumor <sampleId>]\n"
+           "                  [-output_dir <dir>] [-tumor <sampleId>] [-threads N]\n"
            "                  [-debug_only_chr <chr>]\n"
            "\n"
            "-tumor_bam 未給定時只跑到 CP-A2 為止。\n"
@@ -81,6 +81,7 @@ int main(int argc, char **argv){
     std::string tumorBam;
     std::string debugOnlyChr;
     std::string outputDir;
+    int threads = 1;
     std::string sampleId;
     int minBaseQuality = amber::DEFAULT_MIN_BASE_QUALITY;
     int minMappingQuality = amber::DEFAULT_MIN_MAPPING_QUALITY;
@@ -101,6 +102,8 @@ int main(int argc, char **argv){
             minMappingQuality = std::stoi(argv[++i]);
         }else if(arg == "-debug_only_chr"){
             debugOnlyChr = argv[++i];
+        }else if(arg == "-threads"){
+            threads = std::stoi(argv[++i]);
         }else if(arg == "-output_dir"){
             outputDir = argv[++i];
         }else if(arg == "-tumor"){
@@ -245,10 +248,10 @@ int main(int argc, char **argv){
     }
 
     const amber::BamScanStats stats =
-            amber::processBam(tumorBam, tasks, minMappingQuality, minBaseQuality);
+            amber::processBam(tumorBam, tasks, minMappingQuality, minBaseQuality, threads);
 
-    std::fprintf(stderr, "consumed %llu reads, non-ACGTN bases at evaluated positions: %llu\n",
-            static_cast<unsigned long long>(stats.recordsConsumed),
+    std::fprintf(stderr, "threads(%d) consumed %llu reads, non-ACGTN bases at evaluated positions: %llu\n",
+            threads, static_cast<unsigned long long>(stats.recordsConsumed),
             static_cast<unsigned long long>(stats.nonAcgtnBases));
 
     if(amber::CpDump::enabled()){

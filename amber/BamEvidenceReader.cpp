@@ -1,7 +1,9 @@
 #include "BamEvidenceReader.h"
 
 #include <algorithm>
+#include <atomic>
 #include <stdexcept>
+#include <thread>
 
 #include "SamRecordView.h"
 
@@ -183,64 +185,105 @@ std::vector<RegionTask> populateTaskQueue(
 
 BamScanStats processBam(
         const std::string &bamFile, std::vector<RegionTask> &tasks,
-        int minMappingQuality, int minBaseQuality)
+        int minMappingQuality, int minBaseQuality, int threads)
 {
-    BamScanStats stats;
+    const int workerCount = std::max(1, threads);
 
-    samFile *in = sam_open(bamFile.c_str(), "r");
-    if(in == nullptr){
-        throw std::runtime_error("unable to open bam: " + bamFile);
-    }
+    // 每個 worker 自帶 samFile / index / bam1_t（htslib 的這些物件非執行緒安全）。
+    // 工作分配用一個原子計數器，等同 Java 端的 TaskQueue：
+    // 哪個執行緒拿到哪個 region 不影響結果，因為 region 之間的位點互不重疊。
+    std::atomic<std::size_t> nextTask{0};
+    std::vector<BamScanStats> perWorker(workerCount);
+    std::vector<std::string> errors(workerCount);
 
-    bam_hdr_t *header = sam_hdr_read(in);
-    if(header == nullptr){
-        throw std::runtime_error("unable to read bam header: " + bamFile);
-    }
-
-    hts_idx_t *index = sam_index_load(in, bamFile.c_str());
-    if(index == nullptr){
-        throw std::runtime_error("unable to load bam index: " + bamFile);
-    }
-
-    bam1_t *record = bam_init1();
-
-    for(RegionTask &task : tasks){
-        const int tid = bam_name2id(header, task.chromosome.c_str());
-        if(tid < 0){
-            // 對應 BamSlicer.createIntervals 找不到 sequence index 時回傳 null → 整個 slice 不執行
-            continue;
+    const auto work = [&](int workerIndex){
+        samFile *in = sam_open(bamFile.c_str(), "r");
+        if(in == nullptr){
+            errors[workerIndex] = "unable to open bam: " + bamFile;
+            return;
         }
 
-        // QueryInterval 為 1-based 含端點（BamSlicer.java:241-259）；
-        // htslib 的區間為 0-based 半開 → [start-1, end)
-        hts_itr_t *iter = sam_itr_queryi(index, tid, task.start - 1, task.end);
-        if(iter == nullptr){
-            continue;
+        bam_hdr_t *header = sam_hdr_read(in);
+        hts_idx_t *index = header == nullptr ? nullptr : sam_index_load(in, bamFile.c_str());
+        if(header == nullptr || index == nullptr){
+            errors[workerIndex] = "unable to read bam header or index: " + bamFile;
+            if(header != nullptr){ sam_hdr_destroy(header); }
+            sam_close(in);
+            return;
         }
 
-        int ret;
-        while((ret = sam_itr_next(in, iter, record)) >= 0){
-            if(!passesFilters(record)){
+        bam1_t *record = bam_init1();
+        BamScanStats &stats = perWorker[workerIndex];
+
+        while(true){
+            const std::size_t taskIndex = nextTask.fetch_add(1);
+            if(taskIndex >= tasks.size()){
+                break;
+            }
+
+            RegionTask &task = tasks[taskIndex];
+
+            const int tid = bam_name2id(header, task.chromosome.c_str());
+            if(tid < 0){
                 continue;
             }
 
-            ++stats.recordsConsumed;
+            hts_itr_t *iter = sam_itr_queryi(index, tid, task.start - 1, task.end);
+            if(iter == nullptr){
+                continue;
+            }
 
-            const SamRecordView read(record);
-            processRecord(task, read, minMappingQuality, minBaseQuality, stats);
+            int ret;
+            while((ret = sam_itr_next(in, iter, record)) >= 0){
+                if(!passesFilters(record)){
+                    continue;
+                }
+
+                ++stats.recordsConsumed;
+
+                const SamRecordView read(record);
+                processRecord(task, read, minMappingQuality, minBaseQuality, stats);
+            }
+
+            hts_itr_destroy(iter);
+
+            if(ret < -1){
+                errors[workerIndex] = "error reading bam region " + task.chromosome;
+                break;
+            }
         }
 
-        hts_itr_destroy(iter);
+        bam_destroy1(record);
+        hts_idx_destroy(index);
+        sam_hdr_destroy(header);
+        sam_close(in);
+    };
 
-        if(ret < -1){
-            throw std::runtime_error("error reading bam region " + task.chromosome);
+    if(workerCount == 1){
+        work(0);
+    }else{
+        std::vector<std::thread> workers;
+        workers.reserve(workerCount);
+        for(int i = 0; i < workerCount; ++i){
+            workers.emplace_back(work, i);
+        }
+        for(std::thread &worker : workers){
+            worker.join();
         }
     }
 
-    bam_destroy1(record);
-    hts_idx_destroy(index);
-    sam_hdr_destroy(header);
-    sam_close(in);
+    for(const std::string &error : errors){
+        if(!error.empty()){
+            throw std::runtime_error(error);
+        }
+    }
+
+    // 兩個計數器都是整數加總，與相加順序無關
+    BamScanStats stats;
+    for(const BamScanStats &s : perWorker){
+        stats.recordsConsumed += s.recordsConsumed;
+        stats.nonAcgtnBases += s.nonAcgtnBases;
+    }
 
     return stats;
 }

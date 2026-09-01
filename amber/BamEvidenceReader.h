@@ -42,10 +42,15 @@ struct BamScanStats
 };
 
 // 對應 BamEvidenceReader.processBam + BamReaderThread + PositionEvidenceChecker。
-// 單執行緒；RUN-002 已於全基因體確認 threads 1 與 8 的 12 個 checkpoint 逐位元組相同。
+//
+// threads > 1 時以 region 為單位分工。這在結構上是安全的：region 對位點是一個分割
+// （populateTaskQueue 把每個位點恰好放進一個 region），因此不同執行緒寫入的
+// PositionEvidence 互不重疊；每個 region 內部的 read 走訪順序仍由 htslib 的
+// iterator 決定，與執行緒數無關。**但這是推論，須以實測確認**——
+// Java 端的對應結論由 EXP-002 實測建立（threads 1 vs 8，12 個 checkpoint 逐位元組相同）。
 BamScanStats processBam(
         const std::string &bamFile, std::vector<RegionTask> &tasks,
-        int minMappingQuality, int minBaseQuality);
+        int minMappingQuality, int minBaseQuality, int threads);
 
 }
 
