@@ -6,7 +6,7 @@ CPPFLAGS += -I$(HTSLIB)
 LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread
 
 SRC := AmberApplication.cpp AmberSitesFile.cpp BamEvidenceReader.cpp CpDump.cpp \
-       HumanChromosome.cpp SamRecordView.cpp
+       HumanChromosome.cpp SamRecordView.cpp TumorFilters.cpp
 OBJ := $(SRC:.cpp=.o)
 
 amber_port: $(OBJ)

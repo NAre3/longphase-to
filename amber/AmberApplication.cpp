@@ -23,6 +23,7 @@
 #include "CpDump.h"
 #include "HumanChromosome.h"
 #include "PositionEvidence.h"
+#include "TumorFilters.h"
 
 namespace {
 
@@ -257,6 +258,97 @@ int main(int argc, char **argv){
         }
         amber::CpDump::writeSorted("CP-A3",
                 "chromosome\tposition\tref\talt\treadDepth\tindelCount"
+                "\trefSupport\taltSupport\tbaseQualFiltered\tmapQualFiltered\tseqTechFiltered",
+                rows);
+    }
+
+    // ---- CP-A4：IndelCount == 0 的保留集合 ----
+    //
+    // 對應 TumorAnalysis.java:100-102：tumorBAFs 中 IndelCount 為 0 者放進 mBafs。
+    // 注意 CP-A3 是**全部**位點，CP-A4 才是第一次縮減。
+
+    std::vector<const amber::PositionEvidence *> retainedEvidence;
+    retainedEvidence.reserve(evidence.size());
+
+    for(const amber::PositionEvidence &pe : evidence){
+        if(pe.indelCount == 0){
+            retainedEvidence.push_back(&pe);
+        }
+    }
+
+    std::fprintf(stderr, "indel filter: %zu of %zu retained\n", retainedEvidence.size(), evidence.size());
+
+    if(amber::CpDump::enabled()){
+        std::vector<amber::CpDump::Row> rows;
+        rows.reserve(retainedEvidence.size());
+        for(const amber::PositionEvidence *pe : retainedEvidence){
+            rows.push_back({pe->chromosome, pe->position,
+                    pe->chromosome + "\t" + std::to_string(pe->position)});
+        }
+        amber::CpDump::writeSorted("CP-A4", "chromosome\tposition", rows);
+    }
+
+    // ---- CP-A5：四道 filter 與排序 ----
+    //
+    // 對應 AmberApplication.runTumorOnly（AmberApplication.java:261-268）：
+    //   ReadDepth >= TumorMinDepth（tumor-only 下為 25）
+    //   aboveQualFilter（三個 filtered 計數器占 ReadDepth 的比例 < 0.15）
+    //   RefSupport >= TumorOnlyMinSupport（2）
+    //   AltSupport >= TumorOnlyMinSupport（2）
+    // 之後 .sorted()——比較函式是 GenomePosition.compare，先比 ContigComparator 的
+    // **rank 數值序**再比 position。rank 不是字串序：chr2 排在 chr10 之前。
+    // idx 欄即此排序後的序位，驗收規則要求逐筆相同，故排序不可用字串比較。
+
+    std::vector<const amber::PositionEvidence *> rawData;
+    rawData.reserve(retainedEvidence.size());
+
+    for(const amber::PositionEvidence *pe : retainedEvidence){
+        if(pe->readDepth < amber::DEFAULT_TUMOR_ONLY_MIN_DEPTH){
+            continue;
+        }
+        if(!amber::aboveQualFilter(*pe)){
+            continue;
+        }
+        if(pe->refSupport < amber::DEFAULT_TUMOR_ONLY_MIN_SUPPORT){
+            continue;
+        }
+        if(pe->altSupport < amber::DEFAULT_TUMOR_ONLY_MIN_SUPPORT){
+            continue;
+        }
+        rawData.push_back(pe);
+    }
+
+    // Java 的 Stream.sorted() 是穩定排序；來源順序為 ArrayListMultimap 的走訪順序。
+    // 位點的 (chromosome, position) 在此唯一，故排序為全序，穩定性不影響結果。
+    std::stable_sort(rawData.begin(), rawData.end(),
+            [](const amber::PositionEvidence *a, const amber::PositionEvidence *b){
+                return amber::genomePositionLess(*a, *b);
+            });
+
+    std::fprintf(stderr, "four filters: %zu of %zu retained\n", rawData.size(), retainedEvidence.size());
+
+    if(amber::CpDump::enabled()){
+        std::vector<amber::CpDump::Row> rows;
+        rows.reserve(rawData.size());
+        for(std::size_t i = 0; i < rawData.size(); ++i){
+            const amber::PositionEvidence &pe = *rawData[i];
+            std::string line = pe.chromosome;
+            line += "\t" + std::to_string(pe.position);
+            line += "\t" + std::to_string(i);
+            line += "\t" + std::string(1, pe.ref);
+            line += "\t" + std::string(1, pe.alt);
+            line += "\t" + std::to_string(pe.readDepth);
+            line += "\t" + std::to_string(pe.indelCount);
+            line += "\t" + std::to_string(pe.refSupport);
+            line += "\t" + std::to_string(pe.altSupport);
+            line += "\t" + std::to_string(pe.baseQualFiltered);
+            line += "\t" + std::to_string(pe.mapQualFiltered);
+            line += "\t" + std::to_string(pe.seqTechFiltered);
+            rows.push_back({pe.chromosome, pe.position, std::move(line)});
+        }
+        // 排序本身即被比對，故用保留呼叫端順序的 write，不是 writeSorted
+        amber::CpDump::write("CP-A5",
+                "chromosome\tposition\tidx\tref\talt\treadDepth\tindelCount"
                 "\trefSupport\taltSupport\tbaseQualFiltered\tmapQualFiltered\tseqTechFiltered",
                 rows);
     }

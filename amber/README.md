@@ -29,6 +29,8 @@ BAM 讀取用的是 LongPhase-TO in-tree 的 htslib 1.16，與行為對照表引
 | CP-A2 | tumor-only blacklist 過濾 | `AmberApplication.hetLociTumorOnly()` |
 | CP-A2b | region 切分（minGap 4000） | `BamEvidenceReader.populateTaskQueue()` |
 | CP-A3 | 七個 per-locus 計數器 | `BamEvidenceReader.processBam()` → `RegionTask` → `PositionEvidenceChecker` |
+| CP-A4 | IndelCount == 0 的保留集合 | `TumorAnalysis.tumorBAFAndContamination()` |
+| CP-A5 | 四道 filter + 排序（含 idx） | `AmberApplication.runTumorOnly()` |
 
 ## 移植時逐條對齊的行為
 
@@ -62,3 +64,14 @@ BAM 讀取用的是 LongPhase-TO in-tree 的 htslib 1.16，與行為對照表引
 - region 切分條件為嚴格小於：`end + 4000 == pos` 併入同一個 region
 - `RegionTask` 的提前中止（`haltProcessing`）在本設定下不可能觸發，故未實作，理由見對照表 §2.4
 - Java 端遇到非 ACGTN 的 IUPAC 碼會丟例外，C++ 改為計數並輸出，讓這個已知的不對稱點可觀察
+
+## CP-A4 / CP-A5 移植時逐條對齊的行為
+
+- **排序用的是染色體 rank 的數值序，不是字串序**（`ContigComparator` → `HumanChromosome.chromosomeRank`：
+  1-22 取數值、X=23、Y=24、MT/M=25、其餘 26）。照字串排會讓 chr10 跑到 chr2 前面，
+  72 萬筆的 idx 全錯。CP-A5 的驗收規則明文要求 idx 逐筆相同
+- CP-A5 用 `CpDump::write` 而非 `writeSorted`——**順序本身就是被比對的對象**
+- tumor-only 的最低深度是 `DEFAULT_TUMOR_ONLY_MIN_DEPTH` **25**，不是 tumor/normal 的 8
+  （`AmberConfig.java:135-146` 依 ReferenceIds 是否為空分支）
+- `aboveQualFilter` 的分母是 ReadDepth，三個 filtered 計數器相加後**嚴格小於** 0.15 才通過
+- CP-A3 是全部位點，CP-A4 才是第一次縮減（634 萬 → 560 萬），CP-A5 再縮到 72 萬
