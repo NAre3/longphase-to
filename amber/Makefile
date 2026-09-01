@@ -5,7 +5,7 @@ HTSLIB   := ../htslib
 CPPFLAGS += -I$(HTSLIB)
 LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread
 
-SRC := AmberApplication.cpp AmberSitesFile.cpp BamEvidenceReader.cpp CpDump.cpp \
+SRC := AmberApplication.cpp AmberOutput.cpp AmberSitesFile.cpp BamEvidenceReader.cpp CpDump.cpp \
        HumanChromosome.cpp SamRecordView.cpp TumorFilters.cpp \
        NoiseFloor.cpp CommonsMath.cpp FastMath.cpp
 OBJ := $(SRC:.cpp=.o)

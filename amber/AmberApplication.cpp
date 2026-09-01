@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "AmberOutput.h"
 #include "AmberSitesFile.h"
 #include "BamEvidenceReader.h"
 #include "ChrBaseRegion.h"
@@ -61,9 +62,11 @@ std::string usage(){
     return "usage: amber_port -loci <AmberGermlineSites.tsv.gz> "
            "-tumor_only_excluded_bed <tumorOnlyExcludedSnp.38.bed> -cpdump_dir <dir>\n"
            "                  [-tumor_bam <bam>] [-min_base_quality N] [-min_map_quality N]\n"
+           "                  [-output_dir <dir>] [-tumor <sampleId>]\n"
            "                  [-debug_only_chr <chr>]\n"
            "\n"
            "-tumor_bam 未給定時只跑到 CP-A2 為止。\n"
+           "-output_dir 與 -tumor 同時給定時寫出 amber.baf.tsv.gz 與 amber.qc。\n"
            "-debug_only_chr 僅為迭代時縮短週期用的 harness 便利旗標，**不是移植的行為**\n"
            "  （AMBER 的 -specific_chr 並不會限制 loci）。正式記錄的執行必須不帶此旗標。\n";
 }
@@ -76,6 +79,8 @@ int main(int argc, char **argv){
     std::string cpDumpDir;
     std::string tumorBam;
     std::string debugOnlyChr;
+    std::string outputDir;
+    std::string sampleId;
     int minBaseQuality = amber::DEFAULT_MIN_BASE_QUALITY;
     int minMappingQuality = amber::DEFAULT_MIN_MAPPING_QUALITY;
 
@@ -95,6 +100,10 @@ int main(int argc, char **argv){
             minMappingQuality = std::stoi(argv[++i]);
         }else if(arg == "-debug_only_chr"){
             debugOnlyChr = argv[++i];
+        }else if(arg == "-output_dir"){
+            outputDir = argv[++i];
+        }else if(arg == "-tumor"){
+            sampleId = argv[++i];
         }
     }
 
@@ -451,6 +460,82 @@ int main(int argc, char **argv){
             rows.push_back({pe.chromosome, pe.position, std::move(line)});
         }
         amber::CpDump::write("CP-A6b", "chromosome\tposition\tidx\trefFrequency\taltFrequency", rows);
+    }
+
+    // ---- CP-A7：AmberBAF 轉換 ----
+    //
+    // 對應 AmberApplication.java:290-291 與 AmberUtils.fromTumorBaf（AmberUtils.java:58-66）。
+    // **tumorBAF 的分母是 Alt+Ref，不是 ReadDepth**；tumorDepth 才是 ReadDepth。
+    // tumor-only 下 NormalAltSupport / NormalRefSupport / NormalReadDepth 皆為 0
+    // （TumorBAF.fromNormal 從歸零的 PositionEvidence 複製），故 normalBAF = 0/0 = NaN。
+
+    std::vector<amber::AmberBAF> amberBAFList;
+    amberBAFList.reserve(tumorBAFList.size());
+
+    for(const amber::PositionEvidence *pe : tumorBAFList){
+        const int tumorAltCount = pe->altSupport;
+        const double tumorBaf = tumorAltCount / static_cast<double>(tumorAltCount + pe->refSupport);
+
+        const int normalAltCount = 0;
+        const int normalRefSupport = 0;
+        const double normalBaf = normalAltCount / static_cast<double>(normalAltCount + normalRefSupport);
+
+        amber::AmberBAF baf;
+        baf.chromosome = pe->chromosome;
+        baf.position = pe->position;
+        baf.tumorBAF = tumorBaf;
+        baf.tumorDepth = pe->readDepth;
+        baf.normalBAF = normalBaf;
+        baf.normalDepth = 0;
+
+        // AmberApplication.java:291 的 filter(x -> Double.isFinite(x.tumorBAF()))
+        if(!std::isfinite(baf.tumorBAF)){
+            continue;
+        }
+
+        amberBAFList.push_back(std::move(baf));
+    }
+
+    std::fprintf(stderr, "amber BAF: %zu of %zu retained\n", amberBAFList.size(), tumorBAFList.size());
+
+    if(amber::CpDump::enabled()){
+        std::vector<amber::CpDump::Row> rows;
+        rows.reserve(amberBAFList.size());
+        for(std::size_t i = 0; i < amberBAFList.size(); ++i){
+            const amber::AmberBAF &b = amberBAFList[i];
+            std::string line = b.chromosome;
+            line += "\t" + std::to_string(b.position);
+            line += "\t" + std::to_string(i);
+            line += "\t" + amber::CpDump::num(b.tumorBAF);
+            line += "\t" + amber::CpDump::num(b.tumorModifiedBAF());
+            line += "\t" + std::to_string(b.tumorDepth);
+            line += "\t" + amber::CpDump::num(b.normalBAF);
+            line += "\t" + std::to_string(b.normalDepth);
+            rows.push_back({b.chromosome, b.position, std::move(line)});
+        }
+        amber::CpDump::write("CP-A7",
+                "chromosome\tposition\tidx\ttumorBAF\ttumorModifiedBAF"
+                "\ttumorDepth\tnormalBAF\tnormalDepth", rows);
+    }
+
+    // ---- stage 輸出：amber.baf.tsv.gz 與 amber.qc ----
+    //
+    // 對應 ResultsWriter.persistBAF / persistQC（ResultsWriter.java:38-61）。
+    // persistBAF 內另有 PCF 分段（同檔 43-51），屬 EXP-010 的範圍，此處不實作。
+    if(!outputDir.empty()){
+        if(sampleId.empty()){
+            throw std::runtime_error("-output_dir 需要同時給定 -tumor");
+        }
+
+        const std::string bafPath = outputDir + "/" + sampleId + ".amber.baf.tsv.gz";
+        amber::writeAmberBafFile(bafPath, amberBAFList);
+
+        // AmberApplication.java:293 persistQC(0, contamination, null)：
+        // tumor-only 下 consanguinityProportion 為 0、uniparentalDisomy 為 null
+        const std::string qcPath = outputDir + "/" + sampleId + ".amber.qc";
+        amber::writeAmberQcFile(qcPath, noiseFloorResult.contamination, 0.0);
+
+        std::fprintf(stderr, "wrote %s and %s\n", bafPath.c_str(), qcPath.c_str());
     }
 
     return 0;

@@ -33,6 +33,8 @@ BAM 讀取用的是 LongPhase-TO in-tree 的 htslib 1.16，與行為對照表引
 | CP-A5 | 四道 filter + 排序（含 idx） | `AmberApplication.runTumorOnly()` |
 | CP-A6 | noise floor / contamination | `TumorOnlyPurityAnalysis`（amber.purity 套件） |
 | CP-A6b | noise floor 的套用 | `AmberApplication.runTumorOnly()` |
+| CP-A7 | AmberBAF 轉換 | `AmberUtils.fromTumorBaf()` |
+| （stage） | `amber.baf.tsv.gz`、`amber.qc` | `ResultsWriter.persistBAF/persistQC` |
 
 ## 移植時逐條對齊的行為
 
@@ -112,3 +114,26 @@ AMBER 的 peak 捕捉判定是拿 binomial CDF 去比 0.16 / 0.84 兩個門檻�
 
 `tools/noisefloor_from_cp_a5` 直接載入 CP-A5.tsv 只跑 noise floor 這一段（22 秒），
 避免每次迭代都重掃 BAM（21 分鐘）。與 `-debug_only_chr` 同性質，正式記錄的執行仍為完整流程。
+
+## CP-A7 與 stage 輸出
+
+```
+./amber_port ... -tumor <sampleId> -output_dir <dir>
+```
+兩者同時給定時才寫出 `amber.baf.tsv.gz` 與 `amber.qc`。
+
+逐條對齊的行為：
+
+- **`tumorBAF` 的分母是 `Alt+Ref`，不是 `ReadDepth`**（`AmberUtils.java:60-61`）；
+  `tumorDepth` 才是 `ReadDepth`
+- tumor-only 沒有 normal 樣本，normal 的三個計數皆為 0
+  → `normalBAF = 0/0 = NaN`，`normalDepth = 0`。CP-A7 直接寫 NaN；
+  寫檔時 `AmberBAFFile.toString` 以 `Doubles.isFinite` 判斷，非有限值輸出字面 **"0"**
+  （`AmberBAFFile.java:84-86`）
+- `amber.baf.tsv.gz` 為 4 位小數（`DecimalFormat("0.0000")`）。
+  Java 用 HALF_EVEN、C++ 用 `printf %.4f`——**兩者不保證一致**，
+  故先以參考端既有輸出實測：70 萬列零差異（見 RUN-007 的 IMPLEMENTATION checkpoint）
+- `amber.qc` 的 `QCStatus` 由 `Doubles.greaterThan`（epsilon 1e-10）判定，不是 `>`；
+  contamination 為 0 → PASS。tumor-only 下 `ConsanguinityProportion` 為 0、
+  `UniparentalDisomy` 為 `NONE`
+- `persistBAF` 內另含 PCF 分段（`ResultsWriter.java:43-51`），屬 EXP-010，此處不實作
