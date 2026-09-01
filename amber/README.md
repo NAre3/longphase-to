@@ -31,6 +31,8 @@ BAM 讀取用的是 LongPhase-TO in-tree 的 htslib 1.16，與行為對照表引
 | CP-A3 | 七個 per-locus 計數器 | `BamEvidenceReader.processBam()` → `RegionTask` → `PositionEvidenceChecker` |
 | CP-A4 | IndelCount == 0 的保留集合 | `TumorAnalysis.tumorBAFAndContamination()` |
 | CP-A5 | 四道 filter + 排序（含 idx） | `AmberApplication.runTumorOnly()` |
+| CP-A6 | noise floor / contamination | `TumorOnlyPurityAnalysis`（amber.purity 套件） |
+| CP-A6b | noise floor 的套用 | `AmberApplication.runTumorOnly()` |
 
 ## 移植時逐條對齊的行為
 
@@ -75,3 +77,38 @@ BAM 讀取用的是 LongPhase-TO in-tree 的 htslib 1.16，與行為對照表引
   （`AmberConfig.java:135-146` 依 ReferenceIds 是否為空分支）
 - `aboveQualFilter` 的分母是 ReadDepth，三個 filtered 計數器相加後**嚴格小於** 0.15 才通過
 - CP-A3 是全部位點，CP-A4 才是第一次縮減（634 萬 → 560 萬），CP-A5 再縮到 72 萬
+
+## CP-A6 / CP-A6b：數值一致性是這一段的核心
+
+AMBER 的 peak 捕捉判定是拿 binomial CDF 去比 0.16 / 0.84 兩個門檻（`CandidatePeak.java:88-93`）。
+門檻判定是布林值，**CDF 的最後一個位元不同就可能翻轉某個點的歸屬**，因此這一段不能只
+「算出同一個數學函數」，必須連數值實作一起複製：
+
+- `CommonsMath.{h,cpp}`：commons-math3 3.6.1 的 `BinomialDistribution.cumulativeProbability`
+  → `Beta.regularizedBeta`（連分數，epsilon 1E-14）→ `logBeta` → `Gamma.logGamma1p`。
+  Gamma 的 36 個常數由原始碼機械抽出，未經人工轉錄。
+- `FastMath.{h,cpp}` + `FastMathTables.inc`：commons-math 的 `FastMath.log/log1p/exp`。
+  **不能用 `std::log` 等系統版本**——實測 FastMath 與 `java.lang.Math` 本身就不逐位元相同
+  （20 萬組取樣中 log1p 差 13142 組、exp 差 457 組、log 差 21 組），
+  改用系統版本會讓 CDF 出現 1~32 ulp 偏差（61366 組中 215 組）。
+  查表以反射自 `amber_v4.3.jar` 內的 bytecode 倒出，不是抄上游原始碼。
+- **編譯必須帶 `-ffp-contract=off`**：`a*b+c` 若被融合成 FMA，中間結果少一次捨入，
+  結果就與 Java 不同。此旗標已寫進 Makefile。
+
+驗證：`tools/CdfConformance.java`（以 jar 內的 commons-math 產生基準）+
+`tools/cdf_conformance.cpp`（逐位元比對）→ **61366 組零不一致**。
+
+其餘逐條對齊的行為：
+
+- 著絲點座標與免疫排除區間皆取自 jar 內的資源檔／原始碼，非人工輸入
+- `RegionsFilter` 的狀態式掃描照抄（只檢查第一個 end >= position 的區間），
+  不改成「檢查所有區間」——後者雖在不重疊區間下等價，但那是額外假設
+- `LocalMaximaFinder` 末端的 `maxima.remove(firstNonZero)` 是「移除第一個相等的元素」，
+  不是「移除索引 0」
+- gnomad 頻率：loci 檔無 `Frequency` 欄，全部為 0 → 檢查退化為「兩個 band 皆非空」
+- `Doubles.greaterOrEqual` 是 `value - reference > -1e-10`，不是 `>=`
+
+### 開發用 harness（非移植行為）
+
+`tools/noisefloor_from_cp_a5` 直接載入 CP-A5.tsv 只跑 noise floor 這一段（22 秒），
+避免每次迭代都重掃 BAM（21 分鐘）。與 `-debug_only_chr` 同性質，正式記錄的執行仍為完整流程。

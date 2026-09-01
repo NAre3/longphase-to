@@ -9,6 +9,7 @@
 // 逐一對齊的行為出處：RUN-004/behaviour-contract.md
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -22,6 +23,7 @@
 #include "ChrBaseRegion.h"
 #include "CpDump.h"
 #include "HumanChromosome.h"
+#include "NoiseFloor.h"
 #include "PositionEvidence.h"
 #include "TumorFilters.h"
 
@@ -351,6 +353,104 @@ int main(int argc, char **argv){
                 "chromosome\tposition\tidx\tref\talt\treadDepth\tindelCount"
                 "\trefSupport\taltSupport\tbaseQualFiltered\tmapQualFiltered\tseqTechFiltered",
                 rows);
+    }
+
+    // ---- CP-A6：noise floor 與 contamination ----
+    //
+    // 對應 AmberApplication.runTumorOnly（AmberApplication.java:277-281）：
+    // TumorOnlyPurityAnalysis 以 rawData（= CP-A5 的序列）為輸入，
+    // cutoff() 取 min(MIN_CUTOFF, 最小的 copy-number peak / 3)，
+    // contamination 取汙染 peak 的最大 vaf（無則 0.0）。
+
+    std::vector<amber::PositionEvidence> rawDataValues;
+    rawDataValues.reserve(rawData.size());
+    for(const amber::PositionEvidence *pe : rawData){
+        rawDataValues.push_back(*pe);
+    }
+
+    const amber::NoiseFloorResult noiseFloorResult = amber::computeNoiseFloor(rawDataValues);
+
+    std::fprintf(stderr, "noise floor: %zu evidence points, %zu after immune filter, %zu maxima, "
+            "noiseFloor(%.3f) contamination(%.3f)\n",
+            noiseFloorResult.evidencePoints, noiseFloorResult.evidencePointsAfterImmuneFilter,
+            noiseFloorResult.maximaDiagnostics.size(),
+            noiseFloorResult.noiseFloor, noiseFloorResult.contamination);
+
+    if(amber::CpDump::enabled()){
+        std::vector<amber::CpDump::Row> rows;
+        rows.push_back({"", 0, "noiseFloor\t" + amber::CpDump::num(noiseFloorResult.noiseFloor)});
+        rows.push_back({"", 0, "contamination\t" + amber::CpDump::num(noiseFloorResult.contamination)});
+        for(std::size_t i = 0; i < noiseFloorResult.contaminationPeakVafs.size(); ++i){
+            rows.push_back({"", 0, "contaminationPeak." + std::to_string(i) + "\t"
+                    + amber::CpDump::num(noiseFloorResult.contaminationPeakVafs[i])});
+        }
+        amber::CpDump::write("CP-A6", "field\tvalue", rows);
+
+        // 診斷輸出（不在驗收規則內）：每個區域極大值的中間量，
+        // 對應 Java 以 -log_debug 印出的同一組數字。CP-A6 只有三列，
+        // 中間過程若有偏離不會在該檢查點顯現，故另存這一份供日後二分。
+        std::vector<amber::CpDump::Row> diag;
+        diag.push_back({"", 0, "evidencePoints\t" + std::to_string(noiseFloorResult.evidencePoints)});
+        diag.push_back({"", 0, "afterImmuneFilter\t"
+                + std::to_string(noiseFloorResult.evidencePointsAfterImmuneFilter)});
+        for(const amber::PeakDiagnostic &d : noiseFloorResult.maximaDiagnostics){
+            char buffer[256];
+            std::snprintf(buffer, sizeof(buffer),
+                    "peak.%.3f\tscore=%.6f;homProportion=%.6f;chrArmAUC=%.6f;mutationAUC=%.6f;captured=%d;%s",
+                    d.vaf, d.score, d.homozygousProportion, d.chrArmAuc, d.mutationAuc,
+                    d.capturedPoints, d.classification.c_str());
+            diag.push_back({"", 0, buffer});
+        }
+        amber::CpDump::write("CP-A6-diagnostic", "field\tvalue", diag);
+    }
+
+    // ---- CP-A6b：noise floor 的套用 ----
+    //
+    // 對應 AmberApplication.java:284-288：兩個頻率都必須是有限值，
+    // 且以 **Doubles.greaterOrEqual（epsilon 1e-10）** 而非 >= 與 noiseFloor 比較。
+    // refFrequency / altFrequency 的分母是 **ReadDepth**，不是 Ref+Alt（TumorBAF.java:29-32）。
+
+    std::vector<const amber::PositionEvidence *> tumorBAFList;
+    tumorBAFList.reserve(rawData.size());
+
+    for(const amber::PositionEvidence *pe : rawData){
+        const double refFrequency = pe->refSupport / static_cast<double>(pe->readDepth);
+        const double altFrequency = pe->altSupport / static_cast<double>(pe->readDepth);
+
+        if(!std::isfinite(refFrequency)
+                || !amber::doublesGreaterOrEqual(refFrequency, noiseFloorResult.noiseFloor)){
+            continue;
+        }
+        if(!std::isfinite(altFrequency)
+                || !amber::doublesGreaterOrEqual(altFrequency, noiseFloorResult.noiseFloor)){
+            continue;
+        }
+        tumorBAFList.push_back(pe);
+    }
+
+    // Java 端在此再做一次 .sorted()；輸入已依同一比較函式排序且鍵唯一，故順序不變。
+    std::stable_sort(tumorBAFList.begin(), tumorBAFList.end(),
+            [](const amber::PositionEvidence *a, const amber::PositionEvidence *b){
+                return amber::genomePositionLess(*a, *b);
+            });
+
+    std::fprintf(stderr, "noise floor applied: %zu of %zu retained\n", tumorBAFList.size(), rawData.size());
+
+    if(amber::CpDump::enabled()){
+        std::vector<amber::CpDump::Row> rows;
+        rows.reserve(tumorBAFList.size());
+        for(std::size_t i = 0; i < tumorBAFList.size(); ++i){
+            const amber::PositionEvidence &pe = *tumorBAFList[i];
+            const double refFrequency = pe.refSupport / static_cast<double>(pe.readDepth);
+            const double altFrequency = pe.altSupport / static_cast<double>(pe.readDepth);
+            std::string line = pe.chromosome;
+            line += "\t" + std::to_string(pe.position);
+            line += "\t" + std::to_string(i);
+            line += "\t" + amber::CpDump::num(refFrequency);
+            line += "\t" + amber::CpDump::num(altFrequency);
+            rows.push_back({pe.chromosome, pe.position, std::move(line)});
+        }
+        amber::CpDump::write("CP-A6b", "chromosome\tposition\tidx\trefFrequency\taltFrequency", rows);
     }
 
     return 0;
