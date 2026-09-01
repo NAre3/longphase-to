@@ -26,6 +26,7 @@
 #include "HumanChromosome.h"
 #include "NoiseFloor.h"
 #include "PositionEvidence.h"
+#include "Segmentation.h"
 #include "TumorFilters.h"
 
 namespace {
@@ -536,6 +537,30 @@ int main(int argc, char **argv){
         amber::writeAmberQcFile(qcPath, noiseFloorResult.contamination, 0.0);
 
         std::fprintf(stderr, "wrote %s and %s\n", bafPath.c_str(), qcPath.c_str());
+    }
+
+    // ---- CP-A8 / CP-A9：PCF 分段 ----
+    //
+    // 對應 ResultsWriter.persistBAF 內的分段（ResultsWriter.java:43-51）→
+    // BAFSegmenter.writeSegments → PerArmSegmenter。gamma 硬編碼 100.0，AMBER 4.3 無 CLI 可調。
+    // 注意 tumor-only 也會做分段：runTumorOnly 本身沒呼叫，但它呼叫的 persistBAF 內有。
+
+    const amber::SegmentationResult segmentation = amber::segmentBafs(amberBAFList);
+
+    std::size_t segmentCount = 0;
+    for(const amber::ArmSegments &arm : segmentation.arms){
+        segmentCount += arm.segments.size();
+    }
+    std::fprintf(stderr, "PCF segmentation: %d values across %zu arms, penaltyMode(%s), %zu segments\n",
+            segmentation.totalCount, segmentation.arms.size(),
+            segmentation.penaltyMode.c_str(), segmentCount);
+
+    amber::writeSegmentationCheckpoints(segmentation);
+
+    if(!outputDir.empty() && !sampleId.empty()){
+        const std::string pcfPath = outputDir + "/" + sampleId + ".amber.baf.pcf";
+        amber::writeSegmentsFile(pcfPath, segmentation);
+        std::fprintf(stderr, "wrote %s\n", pcfPath.c_str());
     }
 
     return 0;

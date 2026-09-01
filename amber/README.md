@@ -34,7 +34,9 @@ BAM 讀取用的是 LongPhase-TO in-tree 的 htslib 1.16，與行為對照表引
 | CP-A6 | noise floor / contamination | `TumorOnlyPurityAnalysis`（amber.purity 套件） |
 | CP-A6b | noise floor 的套用 | `AmberApplication.runTumorOnly()` |
 | CP-A7 | AmberBAF 轉換 | `AmberUtils.fromTumorBaf()` |
-| （stage） | `amber.baf.tsv.gz`、`amber.qc` | `ResultsWriter.persistBAF/persistQC` |
+| CP-A8 | 分段輸入（per-arm 陣列）與 penalty | `PerArmSegmenter` 建構 |
+| CP-A9 | 分段結果 | `BAFSegmenter.writeSegments` |
+| （stage） | `amber.baf.tsv.gz`、`amber.qc`、`amber.baf.pcf` | `ResultsWriter.persistBAF/persistQC` |
 
 ## 移植時逐條對齊的行為
 
@@ -137,3 +139,37 @@ AMBER 的 peak 捕捉判定是拿 binomial CDF 去比 0.16 / 0.84 兩個門檻�
   contamination 為 0 → PASS。tumor-only 下 `ConsanguinityProportion` 為 0、
   `UniparentalDisomy` 為 `NONE`
 - `persistBAF` 內另含 PCF 分段（`ResultsWriter.java:43-51`），屬 EXP-010，此處不實作
+
+## CP-A8 / CP-A9：PCF 分段
+
+**tumor-only 也會做分段**——`runTumorOnly()` 本身沒呼叫，但它呼叫的 `persistBAF()` 內有
+（`ResultsWriter.java:43-51`）。gamma 硬編碼 100.0，AMBER 4.3 無 CLI 可調。
+
+演算法：每個染色體臂各跑一次最小成本分段的動態規劃（O(n²)，最大的臂 5.3 萬點，
+全基因體約 90 億次內層迴圈，C++ 單執行緒約 19 秒）。penalty 逐臂計算：
+寬度 51 的移動中位數 → 殘差的 MAD → 平方乘 gamma。
+
+逐條對齊的行為：
+
+- **段的 `MeanRatio` 取的是 rawValues 該段的平均**（`Doubles.mean`），
+  **不是** `PiecewiseConstantFit.means` 裡那個已四捨五入到三位小數的值——
+  兩者在程式裡是不同的東西（`ChromosomeArmSegments.java:27`）
+- 動態規劃在成本相同時選哪個切點，由 `cost < minCost`（嚴格小於）與
+  `Double.MAX_VALUE` 的初值決定。改成 `<=` 會選到不同切點
+- cumulative sum 必須照原順序累加；改用其他求和方式會動到最後一位
+- `Doubles.mean` 也是依序累加後再除，不可改寫
+- `WindowedMedian` 的 `getMedian()` 回傳 maxHeap 頂端，即視窗內第 ceil(w/2) 小的值。
+  視窗為奇數且不超過資料長度時等於真中位數；此處以「第 k 小」實作，
+  與 heap 機制無關但輸出相同
+- `.pcf` 的 `MeanRatio` 用 `DecimalFormat("#.####")`：最多四位小數、**去掉尾端的 0**。
+  本資料 9309 段中有 981 段不足四位，該分支確實被觸發
+- arm 的排序為 `ChrArm.compareTo`：先比染色體的 enum 序（1..22, X, Y），再比 arm（P < Q）
+
+### uniform penalty 分支：刻意不實作
+
+`totalCount < 100000` 時 `PerArmSegmenter` 走 uniform 分支，其 `allRatios` 的組裝順序
+取自 `HashMap.keySet()`，**跨語言不保證重現**（spec U5）。本研究的 dev 樣本
+`totalCount = 701544`，走 per-arm-gamma，不會進該分支。
+
+C++ 端在偵測到該分支時**明確拋錯**，而非用某個自訂順序默默算出結果——
+若日後樣本的 BAF site 數低於 10 萬，這個問題必須重新處理，屆時應該要看到失敗而不是看到數字。
