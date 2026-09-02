@@ -129,4 +129,62 @@ void writeAmberQcFile(const std::string &path, double contamination, double cons
     out << "UniparentalDisomy\tNONE" << '\n';
 }
 
+
+void writeTumorRawFile(const std::string &path, const std::vector<RawTumorRow> &rows)
+{
+    gzFile out = gzopen(path.c_str(), "wb");
+    if(out == nullptr){
+        throw std::runtime_error("unable to open for writing: " + path);
+    }
+
+    // PositionEvidenceFile.Columns 的順序與名稱（注意是 RefCount/AltCount，不是 refSupport/altSupport）
+    const std::string header =
+            "Chromosome\tPosition\tRef\tAlt\tReadDepth\tIndelCount"
+            "\tRefCount\tAltCount\tBaseQualFiltered\tMapQualFiltered\tSeqTechFiltered\n";
+    gzwrite(out, header.data(), static_cast<unsigned>(header.size()));
+
+    std::string block;
+    block.reserve(1 << 20);
+
+    for(const RawTumorRow &r : rows){
+        block += *r.chromosome;
+        block += '\t'; block += std::to_string(r.position);
+        block += '\t'; block += r.ref;
+        block += '\t'; block += r.alt;
+        block += '\t'; block += std::to_string(r.readDepth);
+        block += '\t'; block += std::to_string(r.indelCount);
+        block += '\t'; block += std::to_string(r.refSupport);
+        block += '\t'; block += std::to_string(r.altSupport);
+        block += '\t'; block += std::to_string(r.baseQualFiltered);
+        block += '\t'; block += std::to_string(r.mapQualFiltered);
+        block += '\t'; block += std::to_string(r.seqTechFiltered);
+        block += '\n';
+
+        if(block.size() > (1 << 20)){
+            gzwrite(out, block.data(), static_cast<unsigned>(block.size()));
+            block.clear();
+        }
+    }
+
+    if(!block.empty()){
+        gzwrite(out, block.data(), static_cast<unsigned>(block.size()));
+    }
+
+    gzclose(out);
+}
+
+void writeVersionFile(const std::string &path)
+{
+    std::ofstream out(path);
+    if(!out){
+        throw std::runtime_error("unable to open for writing: " + path);
+    }
+
+    // Java 端的 amber.version 為 "version=4.3" + "build.date=<jar 建置時間>"。
+    // 此處刻意不冒用該版本字串，且 build.date 本就無法重現（那是 jar 的建置時間）。
+    out << "version=amber-4.3-cpp-port\n";
+    out << "reproduces=hmftools amber-v4.3\n";
+    out << "implementation=LongPhase-TO C++ port\n";
+}
+
 }

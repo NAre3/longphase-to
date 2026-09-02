@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -64,10 +65,15 @@ std::string usage(){
            "-tumor_only_excluded_bed <tumorOnlyExcludedSnp.38.bed> -cpdump_dir <dir>\n"
            "                  [-tumor_bam <bam>] [-min_base_quality N] [-min_map_quality N]\n"
            "                  [-output_dir <dir>] [-tumor <sampleId>] [-threads N]\n"
+           "                  [-write_tumor_data] [-write_version]\n"
            "                  [-debug_only_chr <chr>]\n"
            "\n"
            "-tumor_bam 未給定時只跑到 CP-A2 為止。\n"
-           "-output_dir 與 -tumor 同時給定時寫出 amber.baf.tsv.gz 與 amber.qc。\n"
+           "-output_dir 與 -tumor 同時給定時寫出 amber.baf.tsv.gz、amber.qc 與 amber.baf.pcf\n"
+           "  ——這三個即 PURPLE 唯一會讀取的檔案（purple/AmberData.java）。\n"
+           "-write_tumor_data 另外寫出 <sample>.amber.tumor.raw.tsv.gz（預設關閉）。\n"
+           "-write_version 另外寫出 amber.version（預設關閉）。\n"
+           "  兩者皆為稽核／除錯用，PURPLE 不讀取，且已實證不影響任何計算。\n"
            "-debug_only_chr 僅為迭代時縮短週期用的 harness 便利旗標，**不是移植的行為**\n"
            "  （AMBER 的 -specific_chr 並不會限制 loci）。正式記錄的執行必須不帶此旗標。\n";
 }
@@ -82,32 +88,48 @@ int main(int argc, char **argv){
     std::string debugOnlyChr;
     std::string outputDir;
     int threads = 1;
+    bool writeTumorData = false;
+    bool writeVersion = false;
     std::string sampleId;
     int minBaseQuality = amber::DEFAULT_MIN_BASE_QUALITY;
     int minMappingQuality = amber::DEFAULT_MIN_MAPPING_QUALITY;
 
-    for(int i = 1; i < argc - 1; ++i){
+    // 注意：迴圈上界必須是 argc 而非 argc-1。原本寫成 argc-1 是為「旗標＋值」成對設計，
+    // 但那會讓**位於最後一個位置的布林旗標**被靜默忽略（-write_version 曾因此無效）。
+    // 取值型參數改為明確檢查後面還有沒有東西。
+    const auto needValue = [&](int i, const char *name) -> const char * {
+        if(i + 1 >= argc){
+            throw std::runtime_error(std::string(name) + " 需要一個值");
+        }
+        return argv[i + 1];
+    };
+
+    for(int i = 1; i < argc; ++i){
         const std::string arg = argv[i];
         if(arg == "-loci"){
-            lociPath = argv[++i];
+            lociPath = needValue(i, arg.c_str()); ++i;
         }else if(arg == "-tumor_only_excluded_bed"){
-            bedPath = argv[++i];
+            bedPath = needValue(i, arg.c_str()); ++i;
         }else if(arg == "-cpdump_dir"){
-            cpDumpDir = argv[++i];
+            cpDumpDir = needValue(i, arg.c_str()); ++i;
         }else if(arg == "-tumor_bam"){
-            tumorBam = argv[++i];
+            tumorBam = needValue(i, arg.c_str()); ++i;
         }else if(arg == "-min_base_quality"){
-            minBaseQuality = std::stoi(argv[++i]);
+            minBaseQuality = std::stoi(needValue(i, arg.c_str())); ++i;
         }else if(arg == "-min_map_quality"){
-            minMappingQuality = std::stoi(argv[++i]);
+            minMappingQuality = std::stoi(needValue(i, arg.c_str())); ++i;
         }else if(arg == "-debug_only_chr"){
-            debugOnlyChr = argv[++i];
+            debugOnlyChr = needValue(i, arg.c_str()); ++i;
+        }else if(arg == "-write_tumor_data"){
+            writeTumorData = true;
+        }else if(arg == "-write_version"){
+            writeVersion = true;
         }else if(arg == "-threads"){
-            threads = std::stoi(argv[++i]);
+            threads = std::stoi(needValue(i, arg.c_str())); ++i;
         }else if(arg == "-output_dir"){
-            outputDir = argv[++i];
+            outputDir = needValue(i, arg.c_str()); ++i;
         }else if(arg == "-tumor"){
-            sampleId = argv[++i];
+            sampleId = needValue(i, arg.c_str()); ++i;
         }
     }
 
@@ -366,6 +388,37 @@ int main(int argc, char **argv){
                 "chromosome\tposition\tidx\tref\talt\treadDepth\tindelCount"
                 "\trefSupport\taltSupport\tbaseQualFiltered\tmapQualFiltered\tseqTechFiltered",
                 rows);
+    }
+
+    // ---- 選用輸出：<sample>.amber.tumor.raw.tsv.gz ----
+    //
+    // 對應 AmberApplication.java:270-274 的 `if(mConfig.WriteTumorData)` 分支，
+    // 位置與 Java 相同（rawData 產生之後、noise floor 之前）。內容即 CP-A5 的 rawData。
+    // 預設關閉：PURPLE 不讀取此檔（purple/AmberData.java 只讀 qc、baf.tsv.gz、baf.pcf），
+    // 且 Java 參考端本就帶著該旗標而 C++ 端未實作時結果仍逐位元組相同，故不影響計算。
+    if(writeTumorData){
+        if(outputDir.empty() || sampleId.empty()){
+            throw std::runtime_error("-write_tumor_data 需要同時給定 -output_dir 與 -tumor");
+        }
+        std::vector<amber::RawTumorRow> rows;
+        rows.reserve(rawData.size());
+        for(const amber::PositionEvidence *pe : rawData){
+            rows.push_back({&pe->chromosome, pe->position, pe->ref, pe->alt,
+                    pe->readDepth, pe->indelCount, pe->refSupport, pe->altSupport,
+                    pe->baseQualFiltered, pe->mapQualFiltered, pe->seqTechFiltered});
+        }
+        const std::string rawPath = outputDir + "/" + sampleId + ".amber.tumor.raw.tsv.gz";
+        amber::writeTumorRawFile(rawPath, rows);
+        std::fprintf(stderr, "wrote %s (%zu rows)\n", rawPath.c_str(), rows.size());
+    }
+
+    if(writeVersion){
+        if(outputDir.empty()){
+            throw std::runtime_error("-write_version 需要 -output_dir");
+        }
+        const std::string versionPath = outputDir + "/amber.version";
+        amber::writeVersionFile(versionPath);
+        std::fprintf(stderr, "wrote %s\n", versionPath.c_str());
     }
 
     // ---- CP-A6：noise floor 與 contamination ----

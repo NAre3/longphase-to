@@ -173,3 +173,29 @@ AMBER 的 peak 捕捉判定是拿 binomial CDF 去比 0.16 / 0.84 兩個門檻�
 
 C++ 端在偵測到該分支時**明確拋錯**，而非用某個自訂順序默默算出結果——
 若日後樣本的 BAF site 數低於 10 萬，這個問題必須重新處理，屆時應該要看到失敗而不是看到數字。
+
+## 選用輸出（CLI 控制，預設關閉）
+
+```
+-write_tumor_data   寫出 <sample>.amber.tumor.raw.tsv.gz
+-write_version      寫出 amber.version
+```
+
+**PURPLE 只讀三個檔**：`amber.qc`、`amber.baf.tsv.gz`、`amber.baf.pcf`
+（`purple/src/main/java/com/hartwig/hmftools/purple/AmberData.java`，缺一即拋 `ParseException`）。
+上面兩個選用輸出 PURPLE 不讀取，純屬稽核／除錯用途，故預設關閉。
+
+**已實證不影響計算**，兩條獨立證據：
+
+1. 產生 Java 參考端時本就帶著 `-write_tumor_data`，而 C++ 端在未實作此輸出的情況下，
+   30 組樣本的十一個 checkpoint 與三個 stage 輸出仍逐位元組相同。
+2. 同一支 C++ 在開與不開旗標下執行，十三個 dump 完全相同。
+
+### 兩者的內容
+
+- `amber.tumor.raw.tsv.gz` **就是 CP-A5 的 rawData**，只是換上 AMBER 的欄名
+  （`RefCount`／`AltCount` 而非 `refSupport`／`altSupport`，且無 `idx` 欄）。
+  已對 Java 的輸出逐位元組驗證（724,166 列）。
+- `amber.version` **刻意不照抄 Java 的 `version=4.3`**：那會讓這個檔看起來像 hmftools 的產出。
+  此處記錄的是「本移植重現的是哪個 AMBER 版本」。Java 的 `build.date` 是 jar 的建置時間，
+  本就無法重現。
