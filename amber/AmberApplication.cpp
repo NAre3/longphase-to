@@ -60,22 +60,31 @@ std::vector<amber::ChrBaseRegion> loadBed(const std::string &path){
     return regions;
 }
 
+// 兩個保真度驗證用的旗標**刻意不列進 usage**（owner 裁示 2026-09-02）：
+//
+//   -cpdump_dir <dir>     開啟 checkpoint dump。未給定時 CpDump::enabled() 為 false，
+//                         所有 dump 呼叫直接跳過，不產生檔案、不影響計算。
+//   -debug_only_chr <chr> 只保留該染色體的 loci，用於縮短迭代週期。
+//                         **不是移植的行為**——AMBER 的 -specific_chr 並不限制 loci。
+//                         正式記錄的執行必須不帶此旗標。
+//
+// 兩者都是「怎麼驗證這份移植」的基礎設施，不是 AMBER 的功能，因此不對一般使用者呈現；
+// 但保留在程式碼裡，因為重驗的需求會實際發生（例如換用帶 Frequency 欄的 loci 檔時，
+// 見 AmberSitesFile.cpp 的 F-R1 註解）。用法見
+// research/studies/purple-port-amber-fidelity-v1/ 的各 run 執行腳本。
 std::string usage(){
     return "usage: amber_port -loci <AmberGermlineSites.tsv.gz> "
-           "-tumor_only_excluded_bed <tumorOnlyExcludedSnp.38.bed> -cpdump_dir <dir>\n"
+           "-tumor_only_excluded_bed <tumorOnlyExcludedSnp.38.bed>\n"
            "                  [-tumor_bam <bam>] [-min_base_quality N] [-min_map_quality N]\n"
            "                  [-output_dir <dir>] [-tumor <sampleId>] [-threads N]\n"
            "                  [-write_tumor_data] [-write_version]\n"
-           "                  [-debug_only_chr <chr>]\n"
            "\n"
            "-tumor_bam 未給定時只跑到 CP-A2 為止。\n"
            "-output_dir 與 -tumor 同時給定時寫出 amber.baf.tsv.gz、amber.qc 與 amber.baf.pcf\n"
            "  ——這三個即 PURPLE 唯一會讀取的檔案（purple/AmberData.java）。\n"
            "-write_tumor_data 另外寫出 <sample>.amber.tumor.raw.tsv.gz（預設關閉）。\n"
            "-write_version 另外寫出 amber.version（預設關閉）。\n"
-           "  兩者皆為稽核／除錯用，PURPLE 不讀取，且已實證不影響任何計算。\n"
-           "-debug_only_chr 僅為迭代時縮短週期用的 harness 便利旗標，**不是移植的行為**\n"
-           "  （AMBER 的 -specific_chr 並不會限制 loci）。正式記錄的執行必須不帶此旗標。\n";
+           "  兩者皆為稽核／除錯用，PURPLE 不讀取，且已實證不影響任何計算。\n";
 }
 
 }
