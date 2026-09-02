@@ -424,6 +424,18 @@ NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence
     // gnomad 頻率：AmberGermlineSites.38.tsv.gz 無 Frequency 欄，全部為 0
     // → baseline 平均為 0，且每個 peak 的兩個 band 平均亦為 0，
     //   PeakGnomadFrequenciesChecker 因此退化為「兩個 band 皆非空」（見下方）。
+    //
+    // **已知限制（2026-09-02 程式碼審查 F-R1）**：此處是把「頻率全為 0」下的
+    // 退化行為寫死，而非移植完整檢查。Java 的 checkGnomadFrequencies 有三個子句
+    // （jar bytecode 156-217）：
+    //     getN()==0 任一為真         → reject
+    //     |low.mean  - baseline| > 0.15 → reject
+    //     |high.mean - baseline| > 0.15 → reject
+    // 本檔只實作第一句，門檻 0.15 不存在於此移植中。前提「頻率全為 0」沒有被
+    // 任何程式碼強制（AmberSitesFile 仍會讀 Frequency 欄，只是下游丟棄）。
+    //
+    // 已知 owner 判定（2026-09-02）：不加防呆拋錯，僅註記。見 AmberSitesFile.cpp
+    // 同一編號的註解，與 research/studies/purple-port-amber-fidelity-v1/CODE-REVIEW-fcb15ca.md
     result.baselineHetGnomadFrequency = 0.0;
 
     const auto chrArmClassifier = [](const PositionEvidence &pe){ return chrArmOf(pe); };

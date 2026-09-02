@@ -93,6 +93,17 @@ std::vector<AmberSite> loadAmberSites(const std::string &filename){
     const int snpCheckIndex = require("SnpCheck");
 
     // Frequency 為選用欄位；bundle 版本沒有這一欄，Java 端此時以 0 代入
+    //
+    // **已知限制（2026-09-02 程式碼審查 F-R1）**：此處讀進來的 gnomadFrequency
+    // 在下游會被丟棄——PositionEvidence 沒有頻率欄位，NoiseFloor 也把 gnomad 檢查
+    // 的 baseline 寫死為 0（NoiseFloor.cpp 的 baselineHetGnomadFrequency）。
+    // 因此若換用**帶 Frequency 欄**的 loci 檔，Java 會恢復完整的 gnomad 檢查
+    // （PeakGnomadFrequenciesChecker 的兩個 |平均 - baseline| > 0.15 子句），
+    // 而本移植不會，且不會報錯——會靜默讓本該被拒絕的 peak 通過。
+    //
+    // 已知 owner 判定（2026-09-02）：HMF 官方 bundle 的 AmberGermlineSites 不含
+    // 此欄且不易變動，故不加防呆拋錯，僅在此註記。改用其他 loci 檔前必須先處理。
+    // 完整分析見 research/studies/purple-port-amber-fidelity-v1/CODE-REVIEW-fcb15ca.md
     const bool hasFrequency = fieldIndex.count("Frequency") > 0;
     const int freqIndex = hasFrequency ? fieldIndex["Frequency"] : -1;
 
