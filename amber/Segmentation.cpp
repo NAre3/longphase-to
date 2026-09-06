@@ -53,7 +53,10 @@ double median(std::vector<double> values)
 }
 
 // Doubles.mean（Doubles.java:75-88）：依序累加後除以長度。
-// 累加順序影響最後一位，故必須照抄順序，不可用其他求和方式。
+// 累加順序影響最後一位。【2026-09-06 更正理由】原註寫「必須照抄順序」，那是追求與 Java
+// 逐位元相同時的說法；現行理由是本程式自己的輸出要穩定——這個值會經 DecimalFormat("#.####")
+// 寫進 .pcf 的 MeanRatio，由 PURPLE 讀取。此迴圈與 std::accumulate 等價，改寫無益亦無害；
+// 不要改成 pairwise 或 Kahan 求和，那會讓輸出隨實作細節變動。
 double mean(const double *values, std::size_t count)
 {
     if(count == 0){
@@ -239,9 +242,9 @@ struct Fit
     std::vector<int> startPositions;
 };
 
-// Segmenter（Segmenter.java）：最小成本分段的動態規劃。
-// 累加順序、比較方式（嚴格 <）與 Double.MAX_VALUE 的初值都照抄；
-// 這些決定了在成本相同時選哪一個切點。
+// Segmenter（Segmenter.java）：最小成本分段的動態規劃。C++ 標準庫沒有對應設施，
+// 這是演算法本身。比較方式（嚴格 <）與 Double.MAX_VALUE 的初值決定成本相同時選哪個切點，
+// 改成 <= 會選到不同切點——那是**分段結果不同**，不是最後一位不同，與浮點精度無關。
 Fit segment(const std::vector<double> &y, double segmentPenalty)
 {
     const std::size_t n = y.size();
