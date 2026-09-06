@@ -7,7 +7,7 @@ LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread
 
 SRC := AmberApplication.cpp AmberOutput.cpp AmberSitesFile.cpp BamEvidenceReader.cpp CpDump.cpp \
        HumanChromosome.cpp SamRecordView.cpp TumorFilters.cpp \
-       NoiseFloor.cpp CommonsMath.cpp FastMath.cpp Segmentation.cpp
+       NoiseFloor.cpp CommonsMath.cpp Segmentation.cpp
 OBJ := $(SRC:.cpp=.o)
 
 amber_port: $(OBJ)

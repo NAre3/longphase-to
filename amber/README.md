@@ -85,22 +85,41 @@ BAM 讀取用的是 LongPhase-TO in-tree 的 htslib 1.16，與行為對照表引
 ## CP-A6 / CP-A6b：數值一致性是這一段的核心
 
 AMBER 的 peak 捕捉判定是拿 binomial CDF 去比 0.16 / 0.84 兩個門檻（`CandidatePeak.java:88-93`）。
-門檻判定是布林值，**CDF 的最後一個位元不同就可能翻轉某個點的歸屬**，因此這一段不能只
-「算出同一個數學函數」，必須連數值實作一起複製：
+門檻判定是布林值，CDF 的偏差有機會翻轉某個點的歸屬，因此這一段的數值行為要單獨驗證。
 
 - `CommonsMath.{h,cpp}`：commons-math3 3.6.1 的 `BinomialDistribution.cumulativeProbability`
-  → `Beta.regularizedBeta`（連分數，epsilon 1E-14）→ `logBeta` → `Gamma.logGamma1p`。
-  Gamma 的 36 個常數由原始碼機械抽出，未經人工轉錄。
-- `FastMath.{h,cpp}` + `FastMathTables.inc`：commons-math 的 `FastMath.log/log1p/exp`。
-  **不能用 `std::log` 等系統版本**——實測 FastMath 與 `java.lang.Math` 本身就不逐位元相同
-  （20 萬組取樣中 log1p 差 13142 組、exp 差 457 組、log 差 21 組），
-  改用系統版本會讓 CDF 出現 1~32 ulp 偏差（61366 組中 215 組）。
-  查表以反射自 `amber_v4.3.jar` 內的 bytecode 倒出，不是抄上游原始碼。
-- **編譯必須帶 `-ffp-contract=off`**：`a*b+c` 若被融合成 FMA，中間結果少一次捨入，
-  結果就與 Java 不同。此旗標已寫進 Makefile。
+  → `Beta.regularizedBeta`（連分數，epsilon 1E-14）。連分數展開保留照抄，因為
+  **正規化不完全 beta 函數 C++ 標準庫沒有**（`std::beta` 是完全 beta，且此處
+  a 小、b 可達 1000，會下溢為 0，不能替代）。其餘一律走標準庫：
+  `log` / `log1p` / `exp` / `lgamma`。
+- **編譯帶 `-ffp-contract=off`**：`a*b+c` 若被融合成 FMA 會少一次捨入。
+  這不再是與 Java 對齊的契約，而是讓**本程式自己的輸出**不隨編譯器與 `-march` 飄移
+  ——PURPLE 直接消費這些檔案。實測：baseline `x86-64` 下此旗標無作用（ISA 無 FMA 指令），
+  但加上 `-march=native` 且允許收縮時，61366 組 CDF 有 5988 組改變（2026-09-06）。
 
-驗證：`tools/CdfConformance.java`（以 jar 內的 commons-math 產生基準）+
-`tools/cdf_conformance.cpp`（逐位元比對）→ **61366 組零不一致**。
+> **【2026-09-06 就地修正】** 本節原本寫「必須連數值實作一起複製」「不能用 `std::log`
+> 等系統版本」，並以 `FastMath.{h,cpp}` + `FastMathTables.inc`（自 jar bytecode 反射倒出的
+> 查表）與 commons-math 的 `Gamma.logGamma1p` 高精度 `logBeta` 機制達成逐位元相同。
+> **該敘述已不成立，相關檔案已刪除。** 逐位元相同是當時達成的結果，不是規格要求的門檻
+> ——研究規格 §5 對 double 欄位宣告的容差本來就是相對 1e-9。
+>
+> 改用標準庫後的實測（依據見 `research/studies/purple-port-amber-fidelity-v1/math_provenance/`）：
+>
+> | 量 | 值 |
+> |---|---|
+> | CDF 與 Java 逐位元不同 | 15021 / 61366（24.5%） |
+> | 最大相對誤差 | 4.11e-11（n=1000, k=9），在規格容差 1e-9 之內 |
+> | 跨越 0.16 / 0.84 門檻的筆數 | 0 |
+> | 全體 CDF 值距門檻最近的距離 | 6.49e-05（比最大偏差大六個數量級） |
+> | 30 組樣本的 noise floor 輸出 | 逐位元組相同（含每個 grid level 的 `%.17g` score） |
+>
+> **未涵蓋**：以上為 30 組 ONT 樣本的實測，不是對所有輸入的證明。
+> 若日後樣本的 CDF 值落到距門檻 1e-10 以內，判定仍可能翻轉。
+
+驗證工具：`tools/CdfConformance.java`（以 jar 內的 commons-math 產生基準）+
+`tools/cdf_conformance.cpp`（逐位元比對）。基準檔 `java_cdf.tsv` 已存於
+`research/studies/purple-port-amber-fidelity-v1/math_provenance/`。
+**其角色已從「必須為零」的驗收門檻改為偏差的量測儀器。**
 
 其餘逐條對齊的行為：
 
