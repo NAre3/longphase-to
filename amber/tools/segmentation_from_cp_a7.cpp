@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "../CpDump.h"
+#include "../../common/CpDump.h"
 #include "../Segmentation.h"
 
 int main(int argc, char **argv)
@@ -48,7 +48,7 @@ int main(int argc, char **argv)
     std::fprintf(stderr, "totalCount=%d penaltyMode=%s arms=%zu\n",
             result.totalCount, result.penaltyMode.c_str(), result.arms.size());
 
-    amber::CpDump::setDir(argv[2]);
+    lp::CpDump::setDir(argv[2]);
     amber::writeSegmentationCheckpoints(result);
 
     if(argc >= 4){

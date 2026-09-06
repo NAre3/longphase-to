@@ -2,7 +2,7 @@
 
 #include <cctype>
 
-namespace amber {
+namespace lp {
 
 std::string stripChrPrefix(const std::string &chromosome){
     if(chromosome.size() >= 3){

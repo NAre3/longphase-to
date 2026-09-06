@@ -5,12 +5,14 @@
 #include <stdexcept>
 #include <thread>
 
-#include "SamRecordView.h"
+#include "../common/SamRecordView.h"
 
 #include "htslib/hts.h"
 #include "htslib/sam.h"
 
 namespace amber {
+
+using namespace lp;
 
 namespace {
 

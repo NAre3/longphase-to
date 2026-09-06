@@ -1,10 +1,10 @@
-#ifndef AMBER_HUMANCHROMOSOME_H
-#define AMBER_HUMANCHROMOSOME_H
+#ifndef LP_HUMANCHROMOSOME_H
+#define LP_HUMANCHROMOSOME_H
 
 #include <string>
 
 // 對應 hmf-common HumanChromosome。只保留 AMBER tumor-only 路徑用得到的部分。
-namespace amber {
+namespace lp {
 
 // 去掉開頭的 "chr"（不分大小寫），對應 RefGenomeFunctions.stripChrPrefix
 std::string stripChrPrefix(const std::string &chromosome);

@@ -1,10 +1,10 @@
-#ifndef AMBER_CPDUMP_H
-#define AMBER_CPDUMP_H
+#ifndef LP_CPDUMP_H
+#define LP_CPDUMP_H
 
 #include <string>
 #include <vector>
 
-namespace amber {
+namespace lp {
 
 // EXP-002 的 Java 端 CpDump 的 C++ 對應。契約見 spec §5：
 // TSV、\t 分隔、\n 行尾、固定欄名；per-locus 由 dump 端依 (chromosome, position) 穩定排序。

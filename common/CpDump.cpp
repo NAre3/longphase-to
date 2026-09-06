@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <sys/stat.h>
 
-namespace amber {
+namespace lp {
 
 namespace {
 std::string gDir;

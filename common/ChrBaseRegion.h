@@ -1,9 +1,9 @@
-#ifndef AMBER_CHRBASEREGION_H
-#define AMBER_CHRBASEREGION_H
+#ifndef LP_CHRBASEREGION_H
+#define LP_CHRBASEREGION_H
 
 #include <string>
 
-namespace amber {
+namespace lp {
 
 // 對應 hmf-common ChrBaseRegion。start/end 皆為 1-based 且含端點。
 struct ChrBaseRegion

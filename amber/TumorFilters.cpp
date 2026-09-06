@@ -3,9 +3,11 @@
 #include <cctype>
 #include <cstdlib>
 
-#include "HumanChromosome.h"
+#include "../common/HumanChromosome.h"
 
 namespace amber {
+
+using namespace lp;
 
 namespace {
 

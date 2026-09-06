@@ -2,7 +2,7 @@
 
 #include "htslib/hts.h"
 
-namespace amber {
+namespace lp {
 
 SamRecordView::SamRecordView(const bam1_t *record)
     : mRecord(record)

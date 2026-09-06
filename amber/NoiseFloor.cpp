@@ -9,13 +9,15 @@
 #include <utility>
 
 #include "CommonsMath.h"
-#include "HumanChromosome.h"
+#include "../common/HumanChromosome.h"
 
 namespace amber {
 
+using namespace lp;
+
 namespace {
 
-#include "Centromeres38.inc"
+#include "../common/Centromeres38.inc"
 
 // ---- ChrArmLocator（ChrArmLocator.java:11-21）----
 // position < centromere → P 臂，否則 Q 臂。以 (chromosome, arm) 為分類鍵。

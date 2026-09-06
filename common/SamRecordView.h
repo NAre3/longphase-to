@@ -1,12 +1,12 @@
-#ifndef AMBER_SAMRECORDVIEW_H
-#define AMBER_SAMRECORDVIEW_H
+#ifndef LP_SAMRECORDVIEW_H
+#define LP_SAMRECORDVIEW_H
 
 #include <string>
 #include <vector>
 
 #include "htslib/sam.h"
 
-namespace amber {
+namespace lp {
 
 // htsjdk SAMRecord 的座標轉換在 C++ 端的等價實作。
 //

@@ -7,13 +7,16 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CXXFLAGS += -ffp-contract=off
 # 使用 LongPhase-TO in-tree 的 htslib 1.16（行為對照表 §4 引用的即為此版本）
 HTSLIB   := ../htslib
-CPPFLAGS += -I$(HTSLIB)
+CPPFLAGS += -I$(HTSLIB) -I..
 LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread
 
-SRC := AmberApplication.cpp AmberOutput.cpp AmberSitesFile.cpp BamEvidenceReader.cpp CpDump.cpp \
-       HumanChromosome.cpp SamRecordView.cpp TumorFilters.cpp \
-       NoiseFloor.cpp CommonsMath.cpp Segmentation.cpp
-OBJ := $(SRC:.cpp=.o)
+# 共用核心在 ../common（namespace lp），AMBER 與 COBALT 兩邊共用同一份物件檔來源。
+COMMON_SRC := ../common/CpDump.cpp ../common/HumanChromosome.cpp ../common/SamRecordView.cpp \
+              ../common/Segmentation.cpp
+
+SRC := AmberApplication.cpp AmberOutput.cpp AmberSitesFile.cpp BamEvidenceReader.cpp \
+       TumorFilters.cpp NoiseFloor.cpp CommonsMath.cpp Segmentation.cpp
+OBJ := $(SRC:.cpp=.o) $(COMMON_SRC:.cpp=.o)
 
 amber_port: $(OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) $(LDLIBS)

@@ -5,11 +5,12 @@
 #include <vector>
 
 #include "AmberOutput.h"
+#include "../common/Segmentation.h"
 
 namespace amber {
 
-// 對應 hmf-common 的 common.segmentation 與 common.segmentation.copynumber 套件，
-// 以及 amber 的 BAFSegmenter。行為出處逐條見 Segmentation.cpp 的註解。
+// AMBER 形狀的 BAFSegmenter wrapper。通用的分段核心（Runmed／Gamma penalty／Segmenter）
+// 已抽到 common/Segmentation.h（namespace lp），由 AMBER 與 COBALT 共用。
 
 // BAFSegmenter 建構時傳入 gamma = 100.0（BAFSegmenter.java:37），AMBER 4.3 無 CLI 可調
 constexpr double BAF_SEGMENTATION_GAMMA = 100.0;
@@ -56,9 +57,9 @@ void writeSegmentsFile(const std::string &path, const SegmentationResult &result
 // CP-A8 / CP-A9 的 dump。與 Java 端 patch_segmenter.py 插入的位置對應。
 void writeSegmentationCheckpoints(const SegmentationResult &result);
 
-// 對外暴露供測試：Runmed（含 smoothEnds）與 Gamma 的 segment penalty
-std::vector<double> runmed(const std::vector<double> &data, int k, bool smooth);
-double gammaSegmentPenalty(const std::vector<double> &y, double gamma, bool normalise);
+// Runmed 與 Gamma penalty 已移到 common/（namespace lp）；此處轉出以保持既有呼叫端不變。
+using lp::runmed;
+using lp::gammaSegmentPenalty;
 
 }
 

@@ -22,9 +22,9 @@
 #include "AmberOutput.h"
 #include "AmberSitesFile.h"
 #include "BamEvidenceReader.h"
-#include "ChrBaseRegion.h"
-#include "CpDump.h"
-#include "HumanChromosome.h"
+#include "../common/ChrBaseRegion.h"
+#include "../common/CpDump.h"
+#include "../common/HumanChromosome.h"
 #include "NoiseFloor.h"
 #include "PositionEvidence.h"
 #include "Segmentation.h"
@@ -34,13 +34,13 @@ namespace {
 
 // 對應 AmberUtils.loadBedFromResource：BED 為 0-based 半開區間，
 // 載入時 start+1 轉成 1-based 含端點，end 不變。
-std::vector<amber::ChrBaseRegion> loadBed(const std::string &path){
+std::vector<lp::ChrBaseRegion> loadBed(const std::string &path){
     std::ifstream in(path);
     if(!in){
         throw std::runtime_error("unable to open bed: " + path);
     }
 
-    std::vector<amber::ChrBaseRegion> regions;
+    std::vector<lp::ChrBaseRegion> regions;
     std::string line;
 
     while(std::getline(in, line)){
@@ -147,27 +147,27 @@ int main(int argc, char **argv){
         return 1;
     }
 
-    amber::CpDump::setDir(cpDumpDir);
+    lp::CpDump::setDir(cpDumpDir);
 
     // ---- CP-A1：site 載入 ----
     const std::vector<amber::AmberSite> sites = amber::loadAmberSites(lociPath);
     std::fprintf(stderr, "loaded %zu Amber germline sites from %s\n", sites.size(), lociPath.c_str());
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
         rows.reserve(sites.size());
         for(const amber::AmberSite &site : sites){
             rows.push_back({site.chromosome, site.position,
                     site.chromosome + "\t" + std::to_string(site.position) + "\t" + site.ref + "\t" + site.alt});
         }
-        amber::CpDump::writeSorted("CP-A1", "chromosome\tposition\tref\talt", rows);
+        lp::CpDump::writeSorted("CP-A1", "chromosome\tposition\tref\talt", rows);
     }
 
     // ---- CP-A2：tumor-only blacklist 過濾 ----
     // 對應 hetLociTumorOnly()：對每個 site 掃過全部排除區間，命中即計入 numBlackListed。
     // Java 端用的是逐區間線性掃描並在命中時 break，區間只有 32 個，這裡照做，
     // 不改成區間樹——保真度階段以行為一致為先，效能是第二階段的事。
-    const std::vector<amber::ChrBaseRegion> excluded = loadBed(bedPath);
+    const std::vector<lp::ChrBaseRegion> excluded = loadBed(bedPath);
 
     std::vector<amber::AmberSite> retained;
     retained.reserve(sites.size());
@@ -175,7 +175,7 @@ int main(int argc, char **argv){
 
     for(const amber::AmberSite &site : sites){
         bool blacklisted = false;
-        for(const amber::ChrBaseRegion &region : excluded){
+        for(const lp::ChrBaseRegion &region : excluded){
             if(region.containsPosition(site.chromosome, site.position)){
                 blacklisted = true;
                 break;
@@ -191,19 +191,19 @@ int main(int argc, char **argv){
 
     std::fprintf(stderr, "removed %d blacklisted loci, %zu remaining\n", numBlackListed, retained.size());
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
         rows.reserve(retained.size());
         for(const amber::AmberSite &site : retained){
             rows.push_back({site.chromosome, site.position,
                     site.chromosome + "\t" + std::to_string(site.position) + "\t" + site.ref + "\t" + site.alt});
         }
-        amber::CpDump::writeSorted("CP-A2", "chromosome\tposition\tref\talt", rows);
+        lp::CpDump::writeSorted("CP-A2", "chromosome\tposition\tref\talt", rows);
 
-        std::vector<amber::CpDump::Row> summary;
+        std::vector<lp::CpDump::Row> summary;
         summary.push_back({"", 0, "numBlackListed\t" + std::to_string(numBlackListed)});
         summary.push_back({"", 0, "remaining\t" + std::to_string(retained.size())});
-        amber::CpDump::write("CP-A2-summary", "field\tvalue", summary);
+        lp::CpDump::write("CP-A2-summary", "field\tvalue", summary);
     }
 
     if(tumorBam.empty()){
@@ -240,7 +240,7 @@ int main(int argc, char **argv){
     std::unordered_map<std::string, std::size_t> chrIndex;
 
     for(amber::PositionEvidence &pe : evidence){
-        const std::string key = amber::stripChrPrefix(pe.chromosome);
+        const std::string key = lp::stripChrPrefix(pe.chromosome);
         auto found = chrIndex.find(key);
 
         if(found == chrIndex.end()){
@@ -266,8 +266,8 @@ int main(int argc, char **argv){
     std::fprintf(stderr, "split %zu sites across %zu regions, minGap(%d)\n",
             evidence.size(), tasks.size(), amber::BAM_MIN_GAP_START);
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
         rows.reserve(tasks.size());
         for(const amber::RegionTask &task : tasks){
             rows.push_back({task.chromosome, task.start,
@@ -275,7 +275,7 @@ int main(int argc, char **argv){
                             + std::to_string(task.end) + "\t"
                             + std::to_string(task.positions.size())});
         }
-        amber::CpDump::writeSorted("CP-A2b", "chromosome\tstart\tend\tpositionCount", rows);
+        lp::CpDump::writeSorted("CP-A2b", "chromosome\tstart\tend\tpositionCount", rows);
     }
 
     const amber::BamScanStats stats =
@@ -285,8 +285,8 @@ int main(int argc, char **argv){
             threads, static_cast<unsigned long long>(stats.recordsConsumed),
             static_cast<unsigned long long>(stats.nonAcgtnBases));
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
         rows.reserve(evidence.size());
         for(const amber::PositionEvidence &pe : evidence){
             std::string line = pe.chromosome;
@@ -302,7 +302,7 @@ int main(int argc, char **argv){
             line += "\t" + std::to_string(pe.seqTechFiltered);
             rows.push_back({pe.chromosome, pe.position, std::move(line)});
         }
-        amber::CpDump::writeSorted("CP-A3",
+        lp::CpDump::writeSorted("CP-A3",
                 "chromosome\tposition\tref\talt\treadDepth\tindelCount"
                 "\trefSupport\taltSupport\tbaseQualFiltered\tmapQualFiltered\tseqTechFiltered",
                 rows);
@@ -324,14 +324,14 @@ int main(int argc, char **argv){
 
     std::fprintf(stderr, "indel filter: %zu of %zu retained\n", retainedEvidence.size(), evidence.size());
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
         rows.reserve(retainedEvidence.size());
         for(const amber::PositionEvidence *pe : retainedEvidence){
             rows.push_back({pe->chromosome, pe->position,
                     pe->chromosome + "\t" + std::to_string(pe->position)});
         }
-        amber::CpDump::writeSorted("CP-A4", "chromosome\tposition", rows);
+        lp::CpDump::writeSorted("CP-A4", "chromosome\tposition", rows);
     }
 
     // ---- CP-A5：四道 filter 與排序 ----
@@ -373,8 +373,8 @@ int main(int argc, char **argv){
 
     std::fprintf(stderr, "four filters: %zu of %zu retained\n", rawData.size(), retainedEvidence.size());
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
         rows.reserve(rawData.size());
         for(std::size_t i = 0; i < rawData.size(); ++i){
             const amber::PositionEvidence &pe = *rawData[i];
@@ -393,7 +393,7 @@ int main(int argc, char **argv){
             rows.push_back({pe.chromosome, pe.position, std::move(line)});
         }
         // 排序本身即被比對，故用保留呼叫端順序的 write，不是 writeSorted
-        amber::CpDump::write("CP-A5",
+        lp::CpDump::write("CP-A5",
                 "chromosome\tposition\tidx\tref\talt\treadDepth\tindelCount"
                 "\trefSupport\taltSupport\tbaseQualFiltered\tmapQualFiltered\tseqTechFiltered",
                 rows);
@@ -451,20 +451,20 @@ int main(int argc, char **argv){
             noiseFloorResult.maximaDiagnostics.size(),
             noiseFloorResult.noiseFloor, noiseFloorResult.contamination);
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
-        rows.push_back({"", 0, "noiseFloor\t" + amber::CpDump::num(noiseFloorResult.noiseFloor)});
-        rows.push_back({"", 0, "contamination\t" + amber::CpDump::num(noiseFloorResult.contamination)});
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
+        rows.push_back({"", 0, "noiseFloor\t" + lp::CpDump::num(noiseFloorResult.noiseFloor)});
+        rows.push_back({"", 0, "contamination\t" + lp::CpDump::num(noiseFloorResult.contamination)});
         for(std::size_t i = 0; i < noiseFloorResult.contaminationPeakVafs.size(); ++i){
             rows.push_back({"", 0, "contaminationPeak." + std::to_string(i) + "\t"
-                    + amber::CpDump::num(noiseFloorResult.contaminationPeakVafs[i])});
+                    + lp::CpDump::num(noiseFloorResult.contaminationPeakVafs[i])});
         }
-        amber::CpDump::write("CP-A6", "field\tvalue", rows);
+        lp::CpDump::write("CP-A6", "field\tvalue", rows);
 
         // 診斷輸出（不在驗收規則內）：每個區域極大值的中間量，
         // 對應 Java 以 -log_debug 印出的同一組數字。CP-A6 只有三列，
         // 中間過程若有偏離不會在該檢查點顯現，故另存這一份供日後二分。
-        std::vector<amber::CpDump::Row> diag;
+        std::vector<lp::CpDump::Row> diag;
         diag.push_back({"", 0, "evidencePoints\t" + std::to_string(noiseFloorResult.evidencePoints)});
         diag.push_back({"", 0, "afterImmuneFilter\t"
                 + std::to_string(noiseFloorResult.evidencePointsAfterImmuneFilter)});
@@ -476,7 +476,7 @@ int main(int argc, char **argv){
                     d.capturedPoints, d.classification.c_str());
             diag.push_back({"", 0, buffer});
         }
-        amber::CpDump::write("CP-A6-diagnostic", "field\tvalue", diag);
+        lp::CpDump::write("CP-A6-diagnostic", "field\tvalue", diag);
     }
 
     // ---- CP-A6b：noise floor 的套用 ----
@@ -511,8 +511,8 @@ int main(int argc, char **argv){
 
     std::fprintf(stderr, "noise floor applied: %zu of %zu retained\n", tumorBAFList.size(), rawData.size());
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
         rows.reserve(tumorBAFList.size());
         for(std::size_t i = 0; i < tumorBAFList.size(); ++i){
             const amber::PositionEvidence &pe = *tumorBAFList[i];
@@ -521,11 +521,11 @@ int main(int argc, char **argv){
             std::string line = pe.chromosome;
             line += "\t" + std::to_string(pe.position);
             line += "\t" + std::to_string(i);
-            line += "\t" + amber::CpDump::num(refFrequency);
-            line += "\t" + amber::CpDump::num(altFrequency);
+            line += "\t" + lp::CpDump::num(refFrequency);
+            line += "\t" + lp::CpDump::num(altFrequency);
             rows.push_back({pe.chromosome, pe.position, std::move(line)});
         }
-        amber::CpDump::write("CP-A6b", "chromosome\tposition\tidx\trefFrequency\taltFrequency", rows);
+        lp::CpDump::write("CP-A6b", "chromosome\tposition\tidx\trefFrequency\taltFrequency", rows);
     }
 
     // ---- CP-A7：AmberBAF 轉換 ----
@@ -564,22 +564,22 @@ int main(int argc, char **argv){
 
     std::fprintf(stderr, "amber BAF: %zu of %zu retained\n", amberBAFList.size(), tumorBAFList.size());
 
-    if(amber::CpDump::enabled()){
-        std::vector<amber::CpDump::Row> rows;
+    if(lp::CpDump::enabled()){
+        std::vector<lp::CpDump::Row> rows;
         rows.reserve(amberBAFList.size());
         for(std::size_t i = 0; i < amberBAFList.size(); ++i){
             const amber::AmberBAF &b = amberBAFList[i];
             std::string line = b.chromosome;
             line += "\t" + std::to_string(b.position);
             line += "\t" + std::to_string(i);
-            line += "\t" + amber::CpDump::num(b.tumorBAF);
-            line += "\t" + amber::CpDump::num(b.tumorModifiedBAF());
+            line += "\t" + lp::CpDump::num(b.tumorBAF);
+            line += "\t" + lp::CpDump::num(b.tumorModifiedBAF());
             line += "\t" + std::to_string(b.tumorDepth);
-            line += "\t" + amber::CpDump::num(b.normalBAF);
+            line += "\t" + lp::CpDump::num(b.normalBAF);
             line += "\t" + std::to_string(b.normalDepth);
             rows.push_back({b.chromosome, b.position, std::move(line)});
         }
-        amber::CpDump::write("CP-A7",
+        lp::CpDump::write("CP-A7",
                 "chromosome\tposition\tidx\ttumorBAF\ttumorModifiedBAF"
                 "\ttumorDepth\tnormalBAF\tnormalDepth", rows);
     }
