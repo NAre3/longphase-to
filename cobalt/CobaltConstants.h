@@ -10,6 +10,9 @@ constexpr double GC_MAPPABLE_THRESHOLD = 0.85;
 
 // GC_BUCKET_MIN/MAX = calcGcBucket(DEFAULT_GC_RATIO_MIN/MAX) = round(0.24*100) / round(0.68*100)
 // RUN-C002B 的 CP-C8-summary 實測為 24 / 68
+constexpr double DEFAULT_GC_RATIO_MIN = 0.24;
+constexpr double DEFAULT_GC_RATIO_MAX = 0.68;
+
 constexpr int GC_BUCKET_MIN = 24;
 constexpr int GC_BUCKET_MAX = 68;
 

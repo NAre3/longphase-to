@@ -1,5 +1,6 @@
 // COBALT tumor-only whole-genome 的 C++ 移植（purple-port-cobalt-fidelity-v2）。
-// 本檔目前涵蓋 EXP-C003（CP-C1..C5）、EXP-C004（CP-C6）與 EXP-C005（CP-C7/C8）。
+// 本檔目前涵蓋 EXP-C003（CP-C1..C5）、EXP-C004（CP-C6）、EXP-C005（CP-C7/C8）
+// 與 EXP-C006（CP-C9/C10）。
 //
 // 行為出處逐條見 runs/RUN-C003/behaviour-contract.md。
 
@@ -14,6 +15,7 @@
 
 #include "CobaltConstants.h"
 #include "GcProfile.h"
+#include "BamRatio.h"
 #include "CobaltWindow.h"
 #include "GcBuckets.h"
 #include "ReadDepth.h"
@@ -264,6 +266,77 @@ int main(int argc, char **argv)
         CpDump::write("CP-C8-summary", "field\tvalue", scalars);
     }
 
+    // ---------------- CP-C9 / CP-C10 ----------------
+    // 走訪順序：依 CP-C1 的染色體順序、window 昇冪。
+    // **這與 Java 的 ListMultimap 鍵走訪順序（identity hash，G28）不同，且刻意不重現**
+    // ——見 spec v2 §1.2 DECISION D2 與 behaviour-contract-mean.md §3.4。
+    // 後果：readDepthMean 與 Java 相差約 1e-15（相對），落在 §5.1 第二層容差內。
+    std::vector<cobalt::BamRatio> ratios;
+    ratios.reserve(windows.size());
+    {
+        std::vector<const cobalt::CobaltWindow *> ordered;
+        ordered.reserve(windows.size());
+        for(const cobalt::CobaltWindow &w : windows){ ordered.push_back(&w); }
+        std::stable_sort(ordered.begin(), ordered.end(),
+                         [](const cobalt::CobaltWindow *a, const cobalt::CobaltWindow *b){
+            const int oa = lp::chromosomeOrdinal(a->chromosomeShort);
+            const int ob = lp::chromosomeOrdinal(b->chromosomeShort);
+            if(oa != ob){ return oa < ob; }
+            return a->position < b->position;
+        });
+        for(const cobalt::CobaltWindow *w : ordered)
+        {
+            cobalt::BamRatio r = cobalt::BamRatio::fromWindow(*w);
+            // normaliseForGc：excluded window 的 bucket 為 null -> isAllowed 為假 -> -1（G14）
+            const cobalt::GcPail *pail = (w->gcBucket < 0)
+                ? nullptr
+                : &pails.buckets()[static_cast<std::size_t>(w->gcBucket)];
+            r.normaliseForGc(bucketStats.medianReadDepth(pail));
+            r.applyEnrichment(1.0);                 // WholeGenome：enrichmentQuotient 恆 1.0（G15）
+            ratios.push_back(std::move(r));
+        }
+    }
+
+    auto dumpRatios = [&](const char *id, bool withStatsFlags)
+    {
+        std::vector<CpDump::Row> rows;
+        rows.reserve(ratios.size());
+        for(const cobalt::BamRatio &r : ratios)
+        {
+            std::string s = r.chromosomeShort + "\t" + std::to_string(r.position) + "\t"
+                          + CpDump::num(r.readDepth()) + "\t" + CpDump::num(r.ratio()) + "\t"
+                          + CpDump::num(r.gcContent());
+            if(withStatsFlags)
+            {
+                s += std::string("\t") + (r.included() ? "true" : "false") + "\t"
+                   + (cobalt::ReadDepthStatisticsNormaliser::includedInStats(r) ? "true" : "false");
+            }
+            rows.push_back(line(s));
+        }
+        std::string header = "chromosome\tposition\treadDepth\tratio\tgcContent";
+        if(withStatsFlags){ header += "\tincluded\tincludedInStats"; }
+        CpDump::write(id, header, rows);
+    };
+
+    if(CpDump::enabled()){ dumpRatios("CP-C9", true); }
+
+    cobalt::ReadDepthStatisticsNormaliser meanNormaliser;
+    for(const cobalt::BamRatio &r : ratios){ meanNormaliser.recordValue(r); }
+    meanNormaliser.dataCollectionFinished();
+    for(cobalt::BamRatio &r : ratios){ meanNormaliser.normalise(r); }
+
+    if(CpDump::enabled())
+    {
+        dumpRatios("CP-C10", false);
+        std::vector<CpDump::Row> scalars;
+        scalars.push_back(line("readDepthMean\t" + CpDump::num(meanNormaliser.readDepthMean())));
+        scalars.push_back(line("readDepthMedian\t" + CpDump::num(meanNormaliser.readDepthMedian())));
+        scalars.push_back(line("sampleCount\t" + std::to_string(meanNormaliser.sampleCount())));
+        CpDump::write("CP-C10-summary", "field\tvalue", scalars);
+    }
+
+    std::fprintf(stderr, "cobalt_port: readDepthMean=%.17g readDepthMedian=%.17g sampleCount=%ld\n",
+                 meanNormaliser.readDepthMean(), meanNormaliser.readDepthMedian(), meanNormaliser.sampleCount());
     std::fprintf(stderr, "cobalt_port: gcReplaced=%ld refLookupFailures=%ld bucketedReadings=%ld\n",
                  buildStats.gcReplacedCount, buildStats.referenceLookupFailures, buildStats.bucketedReadings);
     std::fprintf(stderr, "cobalt_port: depthReadings=%zu threads=%d\n", depths.size(), threads);
