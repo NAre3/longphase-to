@@ -1,5 +1,5 @@
 // COBALT tumor-only whole-genome 的 C++ 移植（purple-port-cobalt-fidelity-v2）。
-// 本檔目前只涵蓋 EXP-C003 的範圍：CP-C1/C2/C3/C4/C5。不讀 BAM 內容，只讀 header。
+// 本檔目前涵蓋 EXP-C003（CP-C1/C2/C3/C4/C5）與 EXP-C004（CP-C6）。
 //
 // 行為出處逐條見 runs/RUN-C003/behaviour-contract.md。
 
@@ -13,6 +13,7 @@
 
 #include "CobaltConstants.h"
 #include "GcProfile.h"
+#include "ReadDepth.h"
 #include "Regions.h"
 #include "WindowStatuses.h"
 #include "../common/ChrBaseRegion.h"
@@ -23,21 +24,15 @@ using lp::CpDump;
 
 namespace {
 
-struct ChromosomeData
-{
-    std::string name;     // BAM header 原字串
-    int length = 0;
-};
-
 // BamReadCounter.loadChromosomes：依 header @SQ 順序，只留 HumanChromosome.contains 為真者
-std::vector<ChromosomeData> loadChromosomes(const std::string &bamPath)
+std::vector<cobalt::ChromosomeSpec> loadChromosomes(const std::string &bamPath)
 {
     samFile *fp = sam_open(bamPath.c_str(), "r");
     if(fp == nullptr){ std::fprintf(stderr, "cannot open bam: %s\n", bamPath.c_str()); std::exit(2); }
     sam_hdr_t *hdr = sam_hdr_read(fp);
     if(hdr == nullptr){ std::fprintf(stderr, "cannot read bam header\n"); std::exit(2); }
 
-    std::vector<ChromosomeData> out;
+    std::vector<cobalt::ChromosomeSpec> out;
     const int n = sam_hdr_nref(hdr);
     for(int i = 0; i < n; ++i)
     {
@@ -46,7 +41,7 @@ std::vector<ChromosomeData> loadChromosomes(const std::string &bamPath)
         const std::string sequenceName(name);
         if(!lp::isHumanChromosome(sequenceName)){ continue; }
         // SpecificChrRegions 未設定，該分支不執行
-        out.push_back(ChromosomeData{sequenceName, static_cast<int>(sam_hdr_tid2len(hdr, i))});
+        out.push_back(cobalt::ChromosomeSpec{sequenceName, static_cast<int>(sam_hdr_tid2len(hdr, i))});
     }
     sam_hdr_destroy(hdr);
     sam_close(fp);
@@ -54,10 +49,10 @@ std::vector<ChromosomeData> loadChromosomes(const std::string &bamPath)
 }
 
 // BamReadCounter.partitionGenome
-std::vector<lp::ChrBaseRegion> partitionGenome(const std::vector<ChromosomeData> &chromosomes)
+std::vector<lp::ChrBaseRegion> partitionGenome(const std::vector<cobalt::ChromosomeSpec> &chromosomes)
 {
     std::vector<lp::ChrBaseRegion> partitions;
-    for(const ChromosomeData &c : chromosomes)
+    for(const cobalt::ChromosomeSpec &c : chromosomes)
     {
         for(int startPos = 1; startPos < c.length; startPos += cobalt::PARTITION_SIZE)
         {
@@ -87,6 +82,10 @@ int main(int argc, char **argv)
     const std::string gcProfile    = arg(argc, argv, "-gc_profile");
     const std::string diploidBed   = arg(argc, argv, "-tumor_only_diploid_bed");
     const std::string excludedPath = arg(argc, argv, "-excluded_regions");
+    const int threads = std::atoi(arg(argc, argv, "-threads", "1").c_str());
+    const int minMappingQuality = std::atoi(arg(argc, argv, "-min_quality", "10").c_str());
+    bool includeDuplicates = false;
+    for(int i = 1; i < argc; ++i){ if(std::strcmp(argv[i], "-include_duplicates") == 0){ includeDuplicates = true; } }
     if(bamPath.empty() || gcProfile.empty() || excludedPath.empty())
     {
         std::fprintf(stderr,
@@ -100,7 +99,7 @@ int main(int argc, char **argv)
     if(dumpDir != nullptr && dumpDir[0] != '\0'){ CpDump::setDir(dumpDir); }
 
     // ---------------- CP-C1 / CP-C2 ----------------
-    const std::vector<ChromosomeData> chromosomes = loadChromosomes(bamPath);
+    const std::vector<cobalt::ChromosomeSpec> chromosomes = loadChromosomes(bamPath);
     const std::vector<lp::ChrBaseRegion> partitions = partitionGenome(chromosomes);
 
     if(CpDump::enabled())
@@ -194,6 +193,22 @@ int main(int argc, char **argv)
         CpDump::write("CP-C5", "chromosome\tstart\tend\texcluded\tunmappable\tnonDiploid\tmaskedOut", rows);
     }
 
+    // ---------------- CP-C6 ----------------
+    const std::vector<cobalt::DepthReading> depths =
+        cobalt::calculateReadDepths(bamPath, chromosomes, partitions, minMappingQuality, includeDuplicates, threads);
+    if(CpDump::enabled())
+    {
+        std::vector<CpDump::Row> rows;
+        rows.reserve(depths.size());
+        for(const cobalt::DepthReading &d : depths)
+        {
+            rows.push_back(line(d.chromosome + "\t" + std::to_string(d.startPosition) + "\t"
+                                + CpDump::num(d.readDepth) + "\t" + CpDump::num(d.readGcContent)));
+        }
+        CpDump::write("CP-C6", "chromosome\tposition\treadDepth\treadGcContent", rows);
+    }
+
+    std::fprintf(stderr, "cobalt_port: depthReadings=%zu threads=%d\n", depths.size(), threads);
     std::fprintf(stderr, "cobalt_port: chromosomes=%zu partitions=%zu gcWindows=%zu diploidEntries=%zu\n",
                  chromosomes.size(), partitions.size(),
                  [&]{ std::size_t n = 0; for(const auto &v : gcData.byChromosome){ n += v.size(); } return n; }(),
