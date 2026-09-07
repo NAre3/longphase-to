@@ -1,6 +1,6 @@
 // COBALT tumor-only whole-genome 的 C++ 移植（purple-port-cobalt-fidelity-v2）。
 // 本檔目前涵蓋 EXP-C003（CP-C1..C5）、EXP-C004（CP-C6）、EXP-C005（CP-C7/C8）
-// 與 EXP-C006（CP-C9/C10）。
+// EXP-C006（CP-C9/C10）與 EXP-C007（CP-C11/C12 與兩個 stage 輸出）。
 //
 // 行為出處逐條見 runs/RUN-C003/behaviour-contract.md。
 
@@ -16,6 +16,8 @@
 #include "CobaltConstants.h"
 #include "GcProfile.h"
 #include "BamRatio.h"
+#include "CobaltOutput.h"
+#include "Consolidation.h"
 #include "CobaltWindow.h"
 #include "GcBuckets.h"
 #include "ReadDepth.h"
@@ -335,6 +337,70 @@ int main(int argc, char **argv)
         CpDump::write("CP-C10-summary", "field\tvalue", scalars);
     }
 
+    // ---------------- CP-C11 / CP-C12 與 stage 輸出 ----------------
+    const cobalt::ConsolidatorChoice consolidator =
+        cobalt::chooseConsolidator(meanNormaliser.readDepthMedian());
+    if(consolidator.className == "LowCoverageConsolidator")
+    {
+        // **本分支在 dev 樣本上未被執行**（NoOp）。實作存在是為了讓 EXP-C009 能在
+        // Java 對照下驗證它，而非默默算下去——CP-C11-summary 的類別名是第一層零容差欄位。
+        cobalt::applyLowCoverageConsolidation(ratios, consolidator.consolidationCount);
+    }
+    // MegaBaseScaleNormaliser 與 FinalNormaliser 在 tumor-only whole-genome 下皆為
+    // DoNothingNormaliser（G15）：兩趟 forEach 皆為空實作，不改變任何值。
+
+    if(CpDump::enabled())
+    {
+        std::vector<CpDump::Row> rows;
+        rows.reserve(ratios.size());
+        for(const cobalt::BamRatio &r : ratios)
+        {
+            rows.push_back(line(r.chromosomeShort + "\t" + std::to_string(r.position) + "\t"
+                                + CpDump::num(r.readDepth()) + "\t" + CpDump::num(r.ratio()) + "\t"
+                                + CpDump::num(r.gcContent()) + "\t"
+                                + CpDump::num(r.diploidAdjustedRatio())));
+        }
+        CpDump::write("CP-C11",
+            "chromosome\tposition\treadDepth\tratio\tgcContent\tdiploidAdjustedRatio", rows);
+
+        std::vector<CpDump::Row> scalars;
+        scalars.push_back(line("medianReadDepth\t" + CpDump::num(meanNormaliser.readDepthMedian())));
+        scalars.push_back(line("consolidator\t" + consolidator.className));
+        scalars.push_back(line("megaBaseScaleNormaliser\tDoNothingNormaliser"));
+        scalars.push_back(line("finalNormaliser\tDoNothingNormaliser"));
+        CpDump::write("CP-C11-summary", "field\tvalue", scalars);
+    }
+
+    const std::vector<cobalt::CobaltRatio> collated = cobalt::collateResults(ratios);
+
+    if(CpDump::enabled())
+    {
+        std::vector<CpDump::Row> rows;
+        rows.reserve(collated.size());
+        for(const cobalt::CobaltRatio &c : collated)
+        {
+            // CP-C12 用**物件欄序**（與檔案欄序不同，見 behaviour-contract.md §5.1）
+            rows.push_back(line(c.chromosome + "\t" + std::to_string(c.position) + "\t"
+                                + CpDump::num(c.referenceReadDepth) + "\t" + CpDump::num(c.referenceGCRatio) + "\t"
+                                + CpDump::num(c.referenceGCContent) + "\t" + CpDump::num(c.referenceGCDiploidRatio) + "\t"
+                                + CpDump::num(c.tumorReadDepth) + "\t" + CpDump::num(c.tumorGCRatio) + "\t"
+                                + CpDump::num(c.tumorGcContent)));
+        }
+        CpDump::write("CP-C12", "chromosome\tposition\treferenceReadDepth\treferenceGCRatio\t"
+            "referenceGCContent\treferenceGCDiploidRatio\ttumorReadDepth\ttumorGCRatio\ttumorGCContent", rows);
+    }
+
+    // ---- stage 輸出 ----
+    {
+        const std::string outDir = arg(argc, argv, "-output_dir", ".");
+        const std::string tumorId = arg(argc, argv, "-tumor", "tumor");
+        cobalt::writeCobaltRatioFile(outDir + "/" + tumorId + ".cobalt.ratio.tsv.gz", collated);
+        cobalt::writeGcMedianFile(outDir + "/" + tumorId + ".cobalt.gc.median.tsv",
+                                  meanNormaliser.readDepthMean(), meanNormaliser.readDepthMedian(), bucketStats);
+    }
+
+    std::fprintf(stderr, "cobalt_port: consolidator=%s count=%d\n",
+                 consolidator.className.c_str(), consolidator.consolidationCount);
     std::fprintf(stderr, "cobalt_port: readDepthMean=%.17g readDepthMedian=%.17g sampleCount=%ld\n",
                  meanNormaliser.readDepthMean(), meanNormaliser.readDepthMedian(), meanNormaliser.sampleCount());
     std::fprintf(stderr, "cobalt_port: gcReplaced=%ld refLookupFailures=%ld bucketedReadings=%ld\n",

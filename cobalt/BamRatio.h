@@ -31,6 +31,13 @@ public:
 
     void overrideRatio(double r) { mRatio = r; if(mRatio > 0){ mIncluded = true; } }
 
+    // BamRatio(chromosome, position, readDepth, gcContent) -> this(…, readDepth, readDepth, gcContent)
+    // 第二個建構子：Ratio 初值 = readDepth，Included = true。LowCoverageConsolidator 用。
+    void setFromConsolidated(double readDepth, double gcContent)
+    {
+        mReadDepth = readDepth; mRatio = readDepth; mGcContent = gcContent; mIncluded = true;
+    }
+
 private:
     void normalise(double factor);
 

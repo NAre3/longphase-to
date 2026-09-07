@@ -15,7 +15,8 @@ LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread
 COMMON_SRC := ../common/CpDump.cpp ../common/HumanChromosome.cpp \
               ../common/Segmentation.cpp
 
-SRC := BamRatio.cpp CobaltApplication.cpp CobaltWindow.cpp GcBuckets.cpp GcProfile.cpp Percentile.cpp \
+SRC := BamRatio.cpp CobaltApplication.cpp CobaltOutput.cpp CobaltWindow.cpp Consolidation.cpp \
+       GcBuckets.cpp GcProfile.cpp Percentile.cpp \
        ReadDepth.cpp Regions.cpp WindowStatuses.cpp
 
 OBJ := $(SRC:.cpp=.o) $(COMMON_SRC:.cpp=.o)
