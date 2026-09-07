@@ -1,8 +1,9 @@
 // COBALT tumor-only whole-genome 的 C++ 移植（purple-port-cobalt-fidelity-v2）。
-// 本檔目前涵蓋 EXP-C003（CP-C1/C2/C3/C4/C5）與 EXP-C004（CP-C6）。
+// 本檔目前涵蓋 EXP-C003（CP-C1..C5）、EXP-C004（CP-C6）與 EXP-C005（CP-C7/C8）。
 //
 // 行為出處逐條見 runs/RUN-C003/behaviour-contract.md。
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -13,12 +14,15 @@
 
 #include "CobaltConstants.h"
 #include "GcProfile.h"
+#include "CobaltWindow.h"
+#include "GcBuckets.h"
 #include "ReadDepth.h"
 #include "Regions.h"
 #include "WindowStatuses.h"
 #include "../common/ChrBaseRegion.h"
 #include "../common/CpDump.h"
 #include "../common/HumanChromosome.h"
+#include "../common/Segmentation.h"   // lp::chromosomeOrdinal
 
 using lp::CpDump;
 
@@ -208,6 +212,60 @@ int main(int argc, char **argv)
         CpDump::write("CP-C6", "chromosome\tposition\treadDepth\treadGcContent", rows);
     }
 
+    // ---------------- CP-C7 / CP-C8 ----------------
+    cobalt::GcPailsList pails;
+    cobalt::WindowBuildStats buildStats;
+    std::vector<cobalt::CobaltWindow> windows =
+        cobalt::buildWindows(depths, statuses, gcData, pails, buildStats);
+    const cobalt::GcBucketStatistics bucketStats(pails, cobalt::GC_BUCKET_MIN, cobalt::GC_BUCKET_MAX);
+
+    if(CpDump::enabled())
+    {
+        // dump 端依 HumanChromosome ordinal 排序，染色體內依 position 昇冪
+        // （Java 端 BamCalculation.java:63 的 sortedKeys + 插入順序）
+        std::vector<const cobalt::CobaltWindow *> ordered;
+        ordered.reserve(windows.size());
+        for(const cobalt::CobaltWindow &w : windows){ ordered.push_back(&w); }
+        std::stable_sort(ordered.begin(), ordered.end(),
+                         [](const cobalt::CobaltWindow *a, const cobalt::CobaltWindow *b){
+            const int oa = lp::chromosomeOrdinal(a->chromosomeShort);
+            const int ob = lp::chromosomeOrdinal(b->chromosomeShort);
+            if(oa != ob){ return oa < ob; }
+            return a->position < b->position;
+        });
+
+        std::vector<CpDump::Row> rows;
+        rows.reserve(ordered.size());
+        for(const cobalt::CobaltWindow *w : ordered)
+        {
+            rows.push_back(line(w->chromosomeShort + "\t" + std::to_string(w->position) + "\t"
+                                + CpDump::num(w->readDepth) + "\t" + CpDump::num(w->gcContent) + "\t"
+                                + std::to_string(w->gcBucket) + "\t"
+                                + (w->isInExcludedRegion ? "true" : "false") + "\t"
+                                + (w->isInTargetRegion ? "true" : "false") + "\t"
+                                + (w->gcReplaced ? "true" : "false")));
+        }
+        CpDump::write("CP-C7",
+            "chromosome\tposition\treadDepth\tgcContent\tgcBucket\tisInExcludedRegion\tisInTargetRegion\tgcReplaced", rows);
+
+        rows.clear();
+        for(int i = 0; i < 101; ++i)
+        {
+            const cobalt::GcPail &pail = pails.buckets()[static_cast<std::size_t>(i)];
+            rows.push_back(line(std::to_string(i) + "\t" + std::to_string(pail.readingCount()) + "\t"
+                                + CpDump::num(pail.median()) + "\t"
+                                + CpDump::num(bucketStats.medianReadDepthForBucket(i))));
+        }
+        CpDump::write("CP-C8", "bucket\treadingCount\tpailMedian\tmeanDepth", rows);
+
+        std::vector<CpDump::Row> scalars;
+        scalars.push_back(line("gcBucketMin\t" + std::to_string(cobalt::GC_BUCKET_MIN)));
+        scalars.push_back(line("gcBucketMax\t" + std::to_string(cobalt::GC_BUCKET_MAX)));
+        CpDump::write("CP-C8-summary", "field\tvalue", scalars);
+    }
+
+    std::fprintf(stderr, "cobalt_port: gcReplaced=%ld refLookupFailures=%ld bucketedReadings=%ld\n",
+                 buildStats.gcReplacedCount, buildStats.referenceLookupFailures, buildStats.bucketedReadings);
     std::fprintf(stderr, "cobalt_port: depthReadings=%zu threads=%d\n", depths.size(), threads);
     std::fprintf(stderr, "cobalt_port: chromosomes=%zu partitions=%zu gcWindows=%zu diploidEntries=%zu\n",
                  chromosomes.size(), partitions.size(),
