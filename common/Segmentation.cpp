@@ -209,17 +209,23 @@ std::vector<double> runmed(const std::vector<double> &data, int k, bool smooth)
 }
 
 // Gamma（Gamma.java）
-double gammaSegmentPenalty(const std::vector<double> &y, double gamma, bool normalise)
+double gammaSegmentPenalty(const std::vector<double> &y, double gamma, bool normalise, GammaTrace *trace)
 {
     if(y.empty()){
         throw std::runtime_error("Input array must not be empty");
     }
 
     if(!normalise){
+        if(trace != nullptr){
+            trace->n = static_cast<int>(y.size());
+            trace->normalised = false;
+            trace->penalty = gamma;
+        }
         return gamma;
     }
 
-    const std::vector<double> runningMedians = runmed(y, filterWidth(static_cast<int>(y.size())), true);
+    const int fw = filterWidth(static_cast<int>(y.size()));
+    const std::vector<double> runningMedians = runmed(y, fw, true);
 
     std::vector<double> diffs(y.size());
     for(std::size_t i = 0; i < y.size(); ++i){
@@ -227,13 +233,29 @@ double gammaSegmentPenalty(const std::vector<double> &y, double gamma, bool norm
     }
 
     const double sd = medianAbsoluteDeviation(diffs);
-    return sd == 0 ? 0.01 * gamma : sd * sd * gamma;
+    const double penalty = sd == 0 ? 0.01 * gamma : sd * sd * gamma;
+
+    if(trace != nullptr){
+        trace->n = static_cast<int>(y.size());
+        trace->filterWidth = fw;
+        trace->runningMedians = runningMedians;
+        trace->mad = sd;
+        trace->normalised = true;
+        trace->penalty = penalty;
+    }
+    return penalty;
+}
+
+// 既有簽章，行為不變（AMBER 的呼叫點走這裡）
+double gammaSegmentPenalty(const std::vector<double> &y, double gamma, bool normalise)
+{
+    return gammaSegmentPenalty(y, gamma, normalise, nullptr);
 }
 
 // Segmenter（Segmenter.java）：最小成本分段的動態規劃。C++ 標準庫沒有對應設施，
 // 這是演算法本身。比較方式（嚴格 <）與 Double.MAX_VALUE 的初值決定成本相同時選哪個切點，
 // 改成 <= 會選到不同切點——那是**分段結果不同**，不是最後一位不同，與浮點精度無關。
-Fit segment(const std::vector<double> &y, double segmentPenalty)
+Fit segment(const std::vector<double> &y, double segmentPenalty, std::vector<double> *pcfMeans)
 {
     const std::size_t n = y.size();
 
@@ -291,10 +313,32 @@ Fit segment(const std::vector<double> &y, double segmentPenalty)
     for(int endpoint : segmentEndpoints){
         fit.lengths.push_back(endpoint - start + 1);
         fit.startPositions.push_back(start);
+        if(pcfMeans != nullptr){
+            // Segmentation.pcf()：means[i] = round(Doubles.mean(segment))
+            // Doubles.mean 為單純循序累加除以長度（位元組碼確認），非兩趟、非 Kahan。
+            // round(v) = Math.round(v * 1000) / 1000.0（half-up on scaled）。
+            // Math.round(double) 的規格是 (long) floor(x + 0.5)——**half-up，不是
+            // half-away-from-zero**。負值的正半點上兩者不同（Math.round(-2.5) = -2，
+            // std::llround(-2.5) = -3），故此處必須寫成 floor(x + 0.5)。
+            // 本樣本 14,726 段中有 11,088 段的 pcfMean 為負，負值路徑被大量走到，
+            // 但**恰落在半點的情形未被走到**（見 branch_coverage.tsv）。
+            double sum = 0.0;
+            for(int i = start; i <= endpoint; ++i){
+                sum += y[static_cast<std::size_t>(i)];
+            }
+            const double m = sum / static_cast<double>(endpoint - start + 1);
+            pcfMeans->push_back(std::floor(m * 1000.0 + 0.5) / 1000.0);
+        }
         start = endpoint + 1;
     }
 
     return fit;
+}
+
+// 既有簽章，行為不變（AMBER 的呼叫點走這裡）
+Fit segment(const std::vector<double> &y, double segmentPenalty)
+{
+    return segment(y, segmentPenalty, nullptr);
 }
 
 }

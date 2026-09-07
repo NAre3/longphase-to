@@ -16,7 +16,7 @@ COMMON_SRC := ../common/CpDump.cpp ../common/HumanChromosome.cpp \
               ../common/Segmentation.cpp
 
 SRC := BamRatio.cpp CobaltApplication.cpp CobaltOutput.cpp CobaltWindow.cpp Consolidation.cpp \
-       GcBuckets.cpp GcProfile.cpp Percentile.cpp \
+       GcBuckets.cpp GcProfile.cpp Percentile.cpp Segmentation.cpp \
        ReadDepth.cpp Regions.cpp WindowStatuses.cpp
 
 OBJ := $(SRC:.cpp=.o) $(COMMON_SRC:.cpp=.o)

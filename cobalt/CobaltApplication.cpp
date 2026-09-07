@@ -1,6 +1,7 @@
 // COBALT tumor-only whole-genome 的 C++ 移植（purple-port-cobalt-fidelity-v2）。
 // 本檔目前涵蓋 EXP-C003（CP-C1..C5）、EXP-C004（CP-C6）、EXP-C005（CP-C7/C8）
-// EXP-C006（CP-C9/C10）與 EXP-C007（CP-C11/C12 與兩個 stage 輸出）。
+// EXP-C006（CP-C9/C10）、EXP-C007（CP-C11/C12 與兩個 stage 輸出）
+// 與 EXP-C008（CP-C13/C13b/C13c/C14 與 cobalt.ratio.pcf）。
 //
 // 行為出處逐條見 runs/RUN-C003/behaviour-contract.md。
 
@@ -18,6 +19,7 @@
 #include "BamRatio.h"
 #include "CobaltOutput.h"
 #include "Consolidation.h"
+#include "Segmentation.h"
 #include "CobaltWindow.h"
 #include "GcBuckets.h"
 #include "ReadDepth.h"
@@ -399,6 +401,118 @@ int main(int argc, char **argv)
                                   meanNormaliser.readDepthMean(), meanNormaliser.readDepthMedian(), bucketStats);
     }
 
+    // ---------------- CP-C13 / C13b / C13c / C14 與 cobalt.ratio.pcf ----------------
+    // C++ 端的分段是**單執行緒**（Java 的 PerArmSegmenter.getSegmentation 吃 executor，
+    // C++ 未平行化）。依票面，本票的執行緒掃描結果僅涵蓋單執行緒分段，須在 manifest 明寫。
+    const double pcfGamma = std::atof(arg(argc, argv, "-pcf_gamma", "100").c_str());
+    const cobalt::SegmentationResult seg = cobalt::segmentRatios(collated, pcfGamma);
+
+    auto armLabel = [](const cobalt::ArmData &a){
+        return "ChrArm[chromosome=" + a.chromosomeShort + ", arm=" + std::string(1, a.arm) + "]";
+    };
+
+    // **dump 的 arm 順序與 seg.arms 的順序不同。**
+    // seg.arms 依 ChrArm.compareTo（染色體 enum 序）排序，這是 SegmentsFile.write 走的順序，
+    // 也是 cobalt.ratio.pcf 的列順序。
+    // 但 Java 的 dump 另外以 `arms.sort(Comparator.comparing(ChrArm::toString))` 排——
+    // 那是**對整個標籤字串做字典序**，故為 1P 1Q 10P 10Q 11P … 2P 2Q …
+    // 兩者不同；evaluator 按記錄鍵 join 故判定不受影響，但對齊之後 dump 才能逐位元組比對。
+    std::vector<const cobalt::ArmData *> dumpOrder;
+    dumpOrder.reserve(seg.arms.size());
+    for(const cobalt::ArmData &a : seg.arms){ dumpOrder.push_back(&a); }
+    std::stable_sort(dumpOrder.begin(), dumpOrder.end(),
+                     [&](const cobalt::ArmData *a, const cobalt::ArmData *b){
+        return armLabel(*a) < armLabel(*b);
+    });
+
+    if(CpDump::enabled())
+    {
+        // ---- CP-C13：valueForSegmentation、rawValue、floored ----
+        std::vector<CpDump::Row> rows;
+        for(const cobalt::ArmData *ap : dumpOrder)
+        {
+            const cobalt::ArmData &a = *ap;
+            const std::string label = armLabel(a);
+            for(std::size_t i = 0; i < a.valuesForSegmentation.size(); ++i)
+            {
+                rows.push_back(line(label + "\t" + std::to_string(i) + "\t"
+                    + CpDump::num(a.valuesForSegmentation[i]) + "\t"
+                    + CpDump::num(a.rawValues[i]) + "\t"
+                    + (a.rawValues[i] < 0.001 ? "true" : "false")));
+            }
+        }
+        CpDump::write("CP-C13", "chrArm\tidx\tvalueForSegmentation\trawValue\tfloored", rows);
+
+        std::vector<CpDump::Row> scalars;
+        scalars.push_back(line("totalCount\t" + std::to_string(seg.totalCount)));
+        scalars.push_back(line("uniformPenaltyThreshold\t" + std::to_string(seg.uniformPenaltyThreshold)));
+        scalars.push_back(line("penaltyMode\t" + seg.penaltyMode));
+        scalars.push_back(line("gamma\t" + CpDump::num(seg.gamma)));
+        scalars.push_back(line(std::string("isWindowed\t") + (seg.isWindowed ? "true" : "false")));
+        scalars.push_back(line("armCount\t" + std::to_string(seg.arms.size())));
+        CpDump::write("CP-C13-summary", "field\tvalue", scalars);
+
+        // ---- CP-C13b：Gamma 的中間量（長格式）----
+        rows.clear();
+        for(const cobalt::ArmData *ap : dumpOrder)
+        {
+            const cobalt::ArmData &a = *ap;
+            const std::string label = armLabel(a);
+            rows.push_back(line(label + "\tn\t" + CpDump::num(static_cast<double>(a.trace.n))));
+            rows.push_back(line(label + "\tfilterWidth\t" + CpDump::num(static_cast<double>(a.trace.filterWidth))));
+            rows.push_back(line(label + "\tmad\t" + CpDump::num(a.trace.mad)));
+            rows.push_back(line(label + "\tpenalty\t" + CpDump::num(a.trace.penalty)));
+            rows.push_back(line(label + "\tnormalised\t" + CpDump::num(a.trace.normalised ? 1.0 : 0.0)));
+            rows.push_back(line(label + "\tsegmentPenaltyUsed\t" + CpDump::num(a.trace.penalty)));
+            for(std::size_t i = 0; i < a.trace.runningMedians.size(); ++i)
+            {
+                rows.push_back(line(label + "\trunmed[" + std::to_string(i) + "]\t"
+                    + CpDump::num(a.trace.runningMedians[i])));
+            }
+        }
+        CpDump::write("CP-C13b", "chrArm\tfield\tvalue", rows);
+
+        // ---- CP-C13c：PiecewiseConstantFit 自己的 lengths/startPositions/means ----
+        rows.clear();
+        for(const cobalt::ArmData *ap : dumpOrder)
+        {
+            const cobalt::ArmData &a = *ap;
+            const std::string label = armLabel(a);
+            for(std::size_t i = 0; i < a.fit.lengths.size(); ++i)
+            {
+                rows.push_back(line(label + "\t" + std::to_string(i) + "\t"
+                    + std::to_string(a.fit.lengths[i]) + "\t"
+                    + std::to_string(a.fit.startPositions[i]) + "\t"
+                    + CpDump::num(a.pcfMeans[i])));
+            }
+        }
+        CpDump::write("CP-C13c", "chrArm\tidx\tlength\tstartPosition\tpcfMean", rows);
+
+        // ---- CP-C14：最終 segment ----
+        rows.clear();
+        for(const cobalt::ArmData *ap : dumpOrder)
+        {
+            const cobalt::ArmData &a = *ap;
+            const std::string label = armLabel(a);
+            for(std::size_t i = 0; i < a.segments.size(); ++i)
+            {
+                const cobalt::PcfSegmentOut &sg = a.segments[i];
+                rows.push_back(line(label + "\t" + std::to_string(i) + "\t" + sg.chromosome + "\t"
+                    + std::to_string(sg.start) + "\t" + std::to_string(sg.end) + "\t"
+                    + CpDump::num(sg.meanRatio)));
+            }
+        }
+        CpDump::write("CP-C14", "chrArm\tidx\tchromosome\tstart\tend\tmeanRatio", rows);
+    }
+
+    {
+        const std::string outDir = arg(argc, argv, "-output_dir", ".");
+        const std::string tumorId = arg(argc, argv, "-tumor", "tumor");
+        cobalt::writeSegmentsFile(outDir + "/" + tumorId + ".cobalt.ratio.pcf", seg);
+    }
+
+    std::fprintf(stderr, "cobalt_port: segmentation arms=%zu totalCount=%d penaltyMode=%s gamma=%g\n",
+                 seg.arms.size(), seg.totalCount, seg.penaltyMode.c_str(), seg.gamma);
     std::fprintf(stderr, "cobalt_port: consolidator=%s count=%d\n",
                  consolidator.className.c_str(), consolidator.consolidationCount);
     std::fprintf(stderr, "cobalt_port: readDepthMean=%.17g readDepthMedian=%.17g sampleCount=%ld\n",
