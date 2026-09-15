@@ -7,6 +7,7 @@
 #include "PurpleInput.h"
 #include "PurpleSegmentation.h"
 #include "PurpleObserved.h"
+#include "PurpleFitting.h"
 #include "../common/CpDump.h"
 
 namespace {
@@ -35,10 +36,15 @@ int main(int argc, char **argv){
         purple::dumpSupportSegments(segments);
         const auto observed = purple::createObservedRegions(inputs, segments);
         purple::dumpObservedRegions(observed);
-        std::cerr << "PURPLE P03 segmentation stage complete: " << inputs.bafs.size() << " BAF, "
+        const auto fittingRegions = purple::selectFittingRegions(observed);
+        purple::dumpFittingRegions(fittingRegions);
+        const int threads = std::max(1, std::atoi(value(argc, argv, "-threads").c_str()));
+        const auto fits = purple::fitPurityGrid(fittingRegions, inputs.averageTumorDepth, threads);
+        purple::dumpPurityGrid(fits);
+        std::cerr << "PURPLE P05 fitting-grid stage complete: " << inputs.bafs.size() << " BAF, "
                   << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
                   << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
-                  << observed.size() << " observed regions\n";
+                  << observed.size() << " observed regions, " << fits.size() << " purity/ploidy candidates\n";
         return 0;
     }catch(const std::exception &exception){
         std::cerr << "purple_port: " << exception.what() << '\n';

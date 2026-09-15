@@ -104,6 +104,15 @@ struct ObservedRegion {
     double gcContent = 0;
 };
 
+struct FittedPurity {
+    double purity = 0;
+    double normFactor = 0;
+    double ploidy = 0;
+    double score = 0;
+    double diploidProportion = 0;
+    double somaticPenalty = 0;
+};
+
 }
 
 #endif

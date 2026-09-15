@@ -2,9 +2,9 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CXXFLAGS += -ffp-contract=off
 CPPFLAGS += -I..
-LDLIBS   := -lz
+LDLIBS   := -lz -pthread
 
-SRC := PurpleApplication.cpp PurpleInput.cpp PurpleSegmentation.cpp PurpleObserved.cpp ../common/CpDump.cpp ../common/HumanChromosome.cpp
+SRC := PurpleApplication.cpp PurpleInput.cpp PurpleSegmentation.cpp PurpleObserved.cpp PurpleFitting.cpp ../common/CpDump.cpp ../common/HumanChromosome.cpp
 OBJ := $(SRC:.cpp=.o)
 
 purple_port: $(OBJ)
