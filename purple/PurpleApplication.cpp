@@ -5,6 +5,8 @@
 #include <string>
 
 #include "PurpleInput.h"
+#include "PurpleSegmentation.h"
+#include "PurpleObserved.h"
 #include "../common/CpDump.h"
 
 namespace {
@@ -21,16 +23,22 @@ int main(int argc, char **argv){
         const std::string sample = value(argc, argv, "-tumor");
         const std::string amber = value(argc, argv, "-amber");
         const std::string cobalt = value(argc, argv, "-cobalt");
-        if(sample.empty() || amber.empty() || cobalt.empty()){
-            std::cerr << "usage: purple_port -tumor <sample> -amber <dir> -cobalt <dir> [-cpdump_dir <dir>]\n";
+        const std::string reference = value(argc, argv, "-ref_genome");
+        if(sample.empty() || amber.empty() || cobalt.empty() || reference.empty()){
+            std::cerr << "usage: purple_port -tumor <sample> -amber <dir> -cobalt <dir> -ref_genome <fasta> [-cpdump_dir <dir>]\n";
             return 2;
         }
         lp::CpDump::setDir(value(argc, argv, "-cpdump_dir"));
         const purple::InputData inputs = purple::loadTumorOnlyInputs(sample, amber, cobalt);
         purple::dumpInputCheckpoint(inputs);
-        std::cerr << "PURPLE P02 input stage complete: " << inputs.bafs.size() << " BAF, "
+        const auto segments = purple::createSupportSegments(inputs, reference);
+        purple::dumpSupportSegments(segments);
+        const auto observed = purple::createObservedRegions(inputs, segments);
+        purple::dumpObservedRegions(observed);
+        std::cerr << "PURPLE P03 segmentation stage complete: " << inputs.bafs.size() << " BAF, "
                   << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
-                  << inputs.cobaltTumorPcf.size() << " Cobalt PCF\n";
+                  << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
+                  << observed.size() << " observed regions\n";
         return 0;
     }catch(const std::exception &exception){
         std::cerr << "purple_port: " << exception.what() << '\n';

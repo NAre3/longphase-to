@@ -62,6 +62,48 @@ struct InputData {
     Gender cobaltGender = Gender::MALE;
 };
 
+enum class SegmentSupport { NONE, TELOMERE, CENTROMERE, MULTIPLE, EXCL };
+
+inline const char *segmentSupportName(SegmentSupport support){
+    if(support == SegmentSupport::TELOMERE){ return "TELOMERE"; }
+    if(support == SegmentSupport::CENTROMERE){ return "CENTROMERE"; }
+    if(support == SegmentSupport::MULTIPLE){ return "MULTIPLE"; }
+    if(support == SegmentSupport::EXCL){ return "EXCL"; }
+    return "NONE";
+}
+
+struct SupportSegment {
+    std::string chromosome;
+    int start = 0;
+    int end = 0;
+    bool ratioSupport = true;
+    SegmentSupport support = SegmentSupport::NONE;
+    bool svCluster = false;
+    int minStart = 0;
+    int maxStart = 0;
+};
+
+enum class GermlineStatus { UNKNOWN, DIPLOID, CENTROMETIC, EXCLUDED };
+
+inline const char *germlineStatusName(GermlineStatus status){
+    if(status == GermlineStatus::DIPLOID){ return "DIPLOID"; }
+    if(status == GermlineStatus::CENTROMETIC){ return "CENTROMETIC"; }
+    if(status == GermlineStatus::EXCLUDED){ return "EXCLUDED"; }
+    return "UNKNOWN";
+}
+
+struct ObservedRegion {
+    SupportSegment segment;
+    int bafCount = 0;
+    double observedBaf = 0;
+    int depthWindowCount = 0;
+    double observedTumorRatio = 0;
+    double observedNormalRatio = 0;
+    double unnormalisedObservedNormalRatio = 0;
+    GermlineStatus germlineStatus = GermlineStatus::UNKNOWN;
+    double gcContent = 0;
+};
+
 }
 
 #endif
