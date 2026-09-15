@@ -15,6 +15,8 @@
 #include <zlib.h>
 #include <random>
 
+#include "amber/SharedScanSink.h"
+
 enum CIGAR_OP {
     MATCH = 0,     // alignment match (can be a sequence match or mismatch)
     INSERTION = 1, // insertion to the reference
@@ -283,9 +285,26 @@ class BamParser{
         BamParser(std::string chrName, std::vector<std::string> inputBamFileVec, SnpParser &snpMap, SVParser &svFile, METHParser &modFile, const std::string &ref_string);
         ~BamParser();
         
-        void direct_detect_alleles(int lastSNPPos, htsThreadPool &threadPool, PhasingParameters params, std::vector<ReadVariant> &readVariantVec, ClipCount &clipCount, const std::string &ref_string);
+        // EXP-I02：共用掃描層。
+        //
+        // scanRightEdge 是 iterator 的右界，取 max(lastSNPPos, 該 contig 上最大的 task.end)
+        // （design.md D9）。**不影響 LongPhase-TO 自身看到的 read**：BAM 依座標排序，
+        // 放寬右界只會在尾端追加記錄，而追加的記錄一律被下方的 alignmentStart 閘門擋掉。
+        //
+        // amberSink 為 nullptr 時本函式的行為與整合前完全相同（F3 的對照基準）。
+        void direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThreadPool &threadPool, PhasingParameters params, std::vector<ReadVariant> &readVariantVec, ClipCount &clipCount, const std::string &ref_string, amber::ContigSink *amberSink);
 
 };
+
+// EXP-I02：只有 AMBER 消費者的 contig 專用的掃描。
+//
+// 為什麼需要另一個進入點（design.md D4）：`BamParser` 的建構子在候選變異為空時
+// 直接 `exit(1)`，因此對「BAM header 有、候選 VCF 沒有」的 contig 根本建不出來。
+// 這類 contig 也沒有參考序列可用（design.md D5：FastaParser 只載入 VCF contig），
+// 但 AMBER 的鹼基一律取自 record 本身，不需要參考序列。
+void amberOnlyContigScan(const std::string &bamFile, const std::string &chrName,
+        int scanRightEdge, htsThreadPool &threadPool, const PhasingParameters &params,
+        amber::ContigSink &amberSink);
 
 
 class GenomicWriter {

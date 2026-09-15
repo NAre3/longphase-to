@@ -3,11 +3,32 @@ CXX      = g++
 AR       = ar
 AWK      = awk
 CFLAGS   = -g -Wall -O2 -pedantic -std=c99 -D_XOPEN_SOURCE=600
-CPPFLAGS = -std=c++11 -g -Wall -O3 -fopenmp
+# EXP-I02：由 -std=c++11 提升到 c++17。
+# 理由：amber/ 的來源需要 C++14 以上（BamEvidenceReader.cpp 的 RegionTask aggregate init
+# 帶 default member initializer）。實測主程式六個 source 在 c++17 下無新警告、無錯誤。
+CPPFLAGS = -std=c++17 -g -Wall -O3 -fopenmp
 LDFLAGS  =
 LIBS     =
 
-OBJ = Haplotag.o ParsingBam.o Util.o HaplotagProcess.o PhasingProcess.o Phasing.o PhasingGraph.o MethylXgbModel.o MethylXgbFeatureExtraction.o ModCall.o ModCallParsingBam.o ModCallProcess.o main.o
+OBJ = Haplotag.o ParsingBam.o Util.o HaplotagProcess.o PhasingProcess.o Phasing.o PhasingGraph.o MethylXgbModel.o MethylXgbFeatureExtraction.o ModCall.o ModCallParsingBam.o ModCallProcess.o main.o $(AMBER_OBJ)
+
+# ---- AMBER 整合（EXP-I02）----
+#
+# amber/AmberApplication.o **不在此列**：那是 amber_port 的 main()，
+# 連進 longphase-to 會與 main.o 的 main() 撞名。整合版用的是 AmberPipeline 的
+# prescan/postscan——與 amber_port 呼叫的同一組函式。
+AMBER_OBJ = amber/AmberPipeline.o amber/SharedScanSink.o amber/AmberOutput.o \
+            amber/AmberSitesFile.o amber/BamEvidenceReader.o amber/TumorFilters.o \
+            amber/NoiseFloor.o amber/CommonsMath.o amber/Segmentation.o \
+            common/CpDump.o common/HumanChromosome.o common/SamRecordView.o \
+            common/Segmentation.o
+
+# -ffp-contract=off 是**保真度旗標，不是最佳化偏好**：它決定 NoiseFloor 的 CDF
+# 是否與凍結候選逐位元組相同（amber/Makefile 的註解：61366 組中 5988 組會因收縮而變），
+# 而 amber.baf.pcf 直接由那些數字產生。
+# 只掛在 amber/ 與 common/ 的物件上，**不全域套用**——全域套用會改動 LongPhase-TO
+# 自身的浮點行為，那會直接威脅 F3。
+AMBER_CXXFLAGS = -ffp-contract=off
 DEPDIR = build/deps
 DEPS = $(OBJ:%.o=$(DEPDIR)/%.d)
 
@@ -44,6 +65,15 @@ $(PROGRAMS): $(OBJ)
 %.o: %.cpp | $(DEPDIR)
 	$(CXX) $(ALL_CPPFLAGS) -MMD -MP -MF $(DEPDIR)/$*.d -MT $@ -o $@ -c $<
 
+# amber/ 與 common/ 的物件多帶 -ffp-contract=off（見 AMBER_CXXFLAGS 的說明）
+amber/%.o: amber/%.cpp | $(DEPDIR)
+	mkdir -p $(DEPDIR)/amber
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/$*.d -MT $@ -o $@ -c $<
+
+common/%.o: common/%.cpp | $(DEPDIR)
+	mkdir -p $(DEPDIR)/common
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/$*.d -MT $@ -o $@ -c $<
+
 MethylXgbModel.o: MethylXgbModel.cpp MethylXgbModel.h MethylXgbModelData.inc
 
 $(DEPDIR):
@@ -52,7 +82,7 @@ $(DEPDIR):
 -include $(DEPS)
 
 mostlyclean:
-	-rm -f *.o *.d
+	-rm -f *.o *.d amber/*.o common/*.o
 	-rm -rf $(DEPDIR)
 
 clean: mostlyclean

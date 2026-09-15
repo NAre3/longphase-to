@@ -53,6 +53,20 @@ struct PhasingParameters
     
     // If negative, purity is not provided by user and should be estimated
     double purity = -1.0;
+
+    // ---- AMBER/COBALT 整合（EXP-I02，D-I2）----
+    // 四個旗標皆選填。**全部未給定 → 完全不啟用**，LongPhase-TO 的行為與整合前一致
+    // （這是 F3 迴歸防線的對照基準）。給了一部分而缺另一部分即報錯，不默默半啟用。
+    // 本票（EXP-I02）只接 AMBER 的兩個；gcProfile / diploidBed 於 EXP-I03 接上。
+    std::string amberLoci = "";
+    std::string amberExcludedBed = "";
+    std::string amberOutputDir = "";
+    std::string amberSampleId = "";
+    int amberMinBaseQuality = 13;   // amber::DEFAULT_MIN_BASE_QUALITY
+    int amberMinMapQuality = 50;    // amber::DEFAULT_MIN_MAPPING_QUALITY
+    std::string amberCpDumpDir = "";
+
+    bool amberEnabled() const { return !amberLoci.empty(); }
 };
 
 class PhasingProcess

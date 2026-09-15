@@ -6,6 +6,9 @@
 #include <vector>
 
 #include "PositionEvidence.h"
+#include "../common/SamRecordView.h"
+
+#include "htslib/sam.h"
 
 namespace amber {
 
@@ -51,6 +54,21 @@ struct BamScanStats
 BamScanStats processBam(
         const std::string &bamFile, std::vector<RegionTask> &tasks,
         int minMappingQuality, int minBaseQuality, int threads);
+
+// ---- 共用掃描層（EXP-I02）用的兩個入口 ----
+//
+// 整合版不自己開 BAM、不自己建 iterator，read 由 LongPhase-TO 的線性走訪送進來，
+// 因此需要把 processBam 內部的兩段邏輯轉出來給 ContigSink 用。
+// 兩者都只是轉呼叫既有實作，**沒有任何行為分支**——這是「integrated 與 amber_port
+// 走同一份程式碼」這句話的依據。
+
+// 對應 BamSlicerFilter.passesFilters：0x4 / 0x100 / 0x800 / 0x400 任一命中即排除。
+// **不含 MAPQ**——AMBER 的 MAPQ 是在 addEvidence 內計數而非丟棄（RUN-I001 行為對照表）。
+bool passesSlicerFilters(const bam1_t *record);
+
+// 對應 RegionTask.processRecord。task.currentIndex 單調前進。
+void processRecordForRegion(RegionTask &task, const lp::SamRecordView &read,
+        int minMappingQuality, int minBaseQuality, BamScanStats &stats);
 
 }
 

@@ -8,13 +8,17 @@ CXXFLAGS += -ffp-contract=off
 # 使用 LongPhase-TO in-tree 的 htslib 1.16（行為對照表 §4 引用的即為此版本）
 HTSLIB   := ../htslib
 CPPFLAGS += -I$(HTSLIB) -I..
-LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread
+# -lcurl -lcrypto：worktree 內的 htslib configure 偵測到 libcurl 即開啟 S3/HTTP 支援，
+# hfile_libcurl.o 因此進了 libhts.a。凍結候選的建置環境沒有這個相依，
+# 但整合分支的 htslib 是由頂層 ./configure 產生的，故在此補上（規格 §6 建置警告 2）。
+LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread -lcurl -lcrypto
 
 # 共用核心在 ../common（namespace lp），AMBER 與 COBALT 兩邊共用同一份物件檔來源。
 COMMON_SRC := ../common/CpDump.cpp ../common/HumanChromosome.cpp ../common/SamRecordView.cpp \
               ../common/Segmentation.cpp
 
-SRC := AmberApplication.cpp AmberOutput.cpp AmberSitesFile.cpp BamEvidenceReader.cpp \
+SRC := AmberApplication.cpp AmberPipeline.cpp SharedScanSink.cpp \
+       AmberOutput.cpp AmberSitesFile.cpp BamEvidenceReader.cpp \
        TumorFilters.cpp NoiseFloor.cpp CommonsMath.cpp Segmentation.cpp
 OBJ := $(SRC:.cpp=.o) $(COMMON_SRC:.cpp=.o)
 

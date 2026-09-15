@@ -151,6 +151,19 @@ void processRecord(RegionTask &task, const SamRecordView &read,
 
 }
 
+// 共用掃描層（EXP-I02）需要的兩個入口。兩者都只是把既有的匿名 namespace 實作轉出去，
+// **一行邏輯都沒有改**——processBam 與 ContigSink 因此呼叫的是同一份程式碼。
+bool passesSlicerFilters(const bam1_t *record)
+{
+    return passesFilters(record);
+}
+
+void processRecordForRegion(RegionTask &task, const SamRecordView &read,
+        int minMappingQuality, int minBaseQuality, BamScanStats &stats)
+{
+    processRecord(task, read, minMappingQuality, minBaseQuality, stats);
+}
+
 std::vector<RegionTask> populateTaskQueue(
         const std::vector<std::pair<std::string, std::vector<PositionEvidence *>>> &chrPositions,
         int minGap)

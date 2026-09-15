@@ -51,6 +51,14 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --meth-high=[0~1]                      high methylation probability threshold. default:0.8\n"
 "   --meth-low=[0~1]                       low methylation probability threshold. default:0.2\n\n"
 
+"AMBER integration arguments (all optional; none given = AMBER disabled):\n"
+"   --amber-loci=NAME                      AmberGermlineSites.38.tsv.gz. enables the AMBER consumer on the shared BAM scan.\n"
+"   --amber-excluded-bed=NAME              tumorOnlyExcludedSnp.38.bed. required together with --amber-loci.\n"
+"   --amber-output-dir=DIR                 write <sample>.amber.baf.tsv.gz, .amber.qc and .amber.baf.pcf into DIR.\n"
+"   --amber-sample=NAME                    sample id used for the AMBER output file names.\n"
+"   --amber-min-base-quality=Num           AMBER base quality threshold. default:13\n"
+"   --amber-min-map-quality=Num            AMBER mapping quality threshold. default:50\n\n"
+
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
 "   -x, --mismatchRate=Num                 mark reads as false if mismatchRate of them are higher than threshold. default:3\n\n"
@@ -72,7 +80,9 @@ static const char *CORRECT_USAGE_MESSAGE =
 
 static const char* shortopts = "s:b:o:t:r:d:1:a:q:x:p:e:n:m:L:c:";
 
-enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, VERSION, PON_FILE, STRICT_PON_FILE, SOMATIC_CONNECT_ADJACENT, OUTPUT_LOH, OUTPUT_SGE, OUTPUT_LGE, OUTPUT_GE, DISABLE_PON_TAG, DISABLE_CALLING, DISABLE_REFINE_SOMATIC, OPT_PURITY, METHYL_XGB, DISABLE_METHYL_XGB, METHYL_XGB_SNV_THRESHOLD, METHYL_XGB_INDEL_THRESHOLD, METHYL_WINDOW, METH_HIGH, METH_LOW};
+enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, VERSION, PON_FILE, STRICT_PON_FILE, SOMATIC_CONNECT_ADJACENT, OUTPUT_LOH, OUTPUT_SGE, OUTPUT_LGE, OUTPUT_GE, DISABLE_PON_TAG, DISABLE_CALLING, DISABLE_REFINE_SOMATIC, OPT_PURITY, METHYL_XGB, DISABLE_METHYL_XGB, METHYL_XGB_SNV_THRESHOLD, METHYL_XGB_INDEL_THRESHOLD, METHYL_WINDOW, METH_HIGH, METH_LOW,
+       AMBER_LOCI, AMBER_EXCLUDED_BED, AMBER_OUTPUT_DIR, AMBER_SAMPLE,
+       AMBER_MIN_BASE_QUALITY, AMBER_MIN_MAP_QUALITY, AMBER_CPDUMP_DIR};
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -117,6 +127,13 @@ static const struct option longopts[] = {
     { "overlapThreshold",     required_argument,  NULL, 'L' },
     { "caller",               required_argument,  NULL, 'c' },
     { "purity",               required_argument,  NULL, OPT_PURITY },
+    { "amber-loci",           required_argument,  NULL, AMBER_LOCI },
+    { "amber-excluded-bed",   required_argument,  NULL, AMBER_EXCLUDED_BED },
+    { "amber-output-dir",     required_argument,  NULL, AMBER_OUTPUT_DIR },
+    { "amber-sample",         required_argument,  NULL, AMBER_SAMPLE },
+    { "amber-min-base-quality", required_argument, NULL, AMBER_MIN_BASE_QUALITY },
+    { "amber-min-map-quality",  required_argument, NULL, AMBER_MIN_MAP_QUALITY },
+    { "amber-cpdump-dir",     required_argument,  NULL, AMBER_CPDUMP_DIR },
     { NULL, 0, NULL, 0 }
 };
 
@@ -233,6 +250,15 @@ namespace opt
 
     static int somaticConnectAdjacent = 6;
 
+    // ---- AMBER 整合（EXP-I02）----
+    static std::string amberLoci="";
+    static std::string amberExcludedBed="";
+    static std::string amberOutputDir="";
+    static std::string amberSample="";
+    static int amberMinBaseQuality=13;
+    static int amberMinMapQuality=50;
+    static std::string amberCpDumpDir="";
+
     static bool outputLOH = false;
     static bool outputSGE = false;
     static bool outputLGE = false;
@@ -334,6 +360,13 @@ void PhasingOptions(int argc, char** argv)
                 die = true;
             }
             break;
+        case AMBER_LOCI: arg >> opt::amberLoci; break;
+        case AMBER_EXCLUDED_BED: arg >> opt::amberExcludedBed; break;
+        case AMBER_OUTPUT_DIR: arg >> opt::amberOutputDir; break;
+        case AMBER_SAMPLE: arg >> opt::amberSample; break;
+        case AMBER_MIN_BASE_QUALITY: arg >> opt::amberMinBaseQuality; break;
+        case AMBER_MIN_MAP_QUALITY: arg >> opt::amberMinMapQuality; break;
+        case AMBER_CPDUMP_DIR: arg >> opt::amberCpDumpDir; break;
         case OPT_HELP:
             std::cout << CORRECT_USAGE_MESSAGE;
             exit(EXIT_SUCCESS);
@@ -382,6 +415,40 @@ void PhasingOptions(int argc, char** argv)
     if(opt::bamFile.empty()){
         std::cerr << SUBPROGRAM ": missing BAM file.\n";
         die = true;
+    }
+
+    // ---- AMBER 整合的參數檢查（D-I2）----
+    // 兩個必填旗標「全給」或「全不給」，不接受半套：半套會讓 AMBER 靜默不啟用，
+    // 而使用者以為啟用了——那正是 F3 對照基準會被搞混的情形。
+    if(opt::amberLoci.empty() != opt::amberExcludedBed.empty()){
+        std::cerr << SUBPROGRAM
+                  << ": --amber-loci and --amber-excluded-bed must be given together.\n";
+        die = true;
+    }
+
+    if(!opt::amberLoci.empty()){
+        for(const std::string &path : {opt::amberLoci, opt::amberExcludedBed}){
+            std::ifstream openFile(path.c_str());
+            if(!openFile.is_open()){
+                std::cerr << "File " << path << " not exist.\n\n";
+                die = true;
+            }
+        }
+
+        // AMBER 消費同一次共用走訪，而走訪是逐 BAM 進行的。多個 BAM 時每條 read
+        // 會被 AMBER 看到不只一次，per-locus 計數必然錯。此處直接擋掉，不猜使用者的意圖。
+        if(opt::bamFile.size() != 1){
+            std::cerr << SUBPROGRAM
+                      << ": --amber-loci requires exactly one -b BAM input (got "
+                      << opt::bamFile.size() << ").\n";
+            die = true;
+        }
+
+        if(opt::amberOutputDir.empty() != opt::amberSample.empty()){
+            std::cerr << SUBPROGRAM
+                      << ": --amber-output-dir and --amber-sample must be given together.\n";
+            die = true;
+        }
     }
 
     if(opt::bamFile.size() > 1 &&
@@ -595,6 +662,14 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.outputLGE = opt::outputLGE;
     ecParams.outputGE = opt::outputGE;
     ecParams.purity = opt::purity;
+
+    ecParams.amberLoci = opt::amberLoci;
+    ecParams.amberExcludedBed = opt::amberExcludedBed;
+    ecParams.amberOutputDir = opt::amberOutputDir;
+    ecParams.amberSampleId = opt::amberSample;
+    ecParams.amberMinBaseQuality = opt::amberMinBaseQuality;
+    ecParams.amberMinMapQuality = opt::amberMinMapQuality;
+    ecParams.amberCpDumpDir = opt::amberCpDumpDir;
 
     PhasingProcess processor(ecParams);
 
