@@ -9,13 +9,15 @@ CXXFLAGS += -ffp-contract=off
 # 使用 LongPhase-TO in-tree 的 htslib（與 AMBER 端同一份）
 HTSLIB   := ../htslib
 CPPFLAGS += -I$(HTSLIB) -I..
-LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread
+# -lcurl -lcrypto：worktree 內的 htslib configure 偵測到 libcurl 即開啟 S3/HTTP 支援，
+# hfile_libcurl.o 因此進了 libhts.a（規格 §6 建置警告 2，EXP-I02 已在 amber/Makefile 補過）。
+LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread -lcurl -lcrypto
 
 # 共用核心在 ../common（namespace lp），AMBER 與 COBALT 兩邊共用同一份物件檔來源。
 COMMON_SRC := ../common/CpDump.cpp ../common/HumanChromosome.cpp \
               ../common/Segmentation.cpp
 
-SRC := BamRatio.cpp CobaltApplication.cpp CobaltOutput.cpp CobaltWindow.cpp Consolidation.cpp \
+SRC := BamRatio.cpp CobaltApplication.cpp CobaltPipeline.cpp CobaltOutput.cpp CobaltWindow.cpp Consolidation.cpp \
        GcBuckets.cpp GcProfile.cpp Percentile.cpp Segmentation.cpp \
        ReadDepth.cpp Regions.cpp WindowStatuses.cpp
 

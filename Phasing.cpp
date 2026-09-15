@@ -57,7 +57,13 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --amber-output-dir=DIR                 write <sample>.amber.baf.tsv.gz, .amber.qc and .amber.baf.pcf into DIR.\n"
 "   --amber-sample=NAME                    sample id used for the AMBER output file names.\n"
 "   --amber-min-base-quality=Num           AMBER base quality threshold. default:13\n"
-"   --amber-min-map-quality=Num            AMBER mapping quality threshold. default:50\n\n"
+"   --amber-min-map-quality=Num            AMBER mapping quality threshold. default:50\n"
+"   --cobalt-gc-profile=NAME               GC_profile.1000bp.38.cnp. enables the COBALT consumer.\n"
+"   --cobalt-excluded-regions=NAME         excluded regions tsv. required together with --cobalt-gc-profile.\n"
+"   --cobalt-diploid-bed=NAME              tumor-only diploid bed.gz. optional.\n"
+"   --cobalt-output-dir=DIR                write <sample>.cobalt.ratio.tsv.gz, .cobalt.ratio.pcf and .cobalt.gc.median.tsv.\n"
+"   --cobalt-sample=NAME                   sample id used for the COBALT output file names.\n"
+"   --cobalt-min-map-quality=Num           COBALT mapping quality threshold. default:10\n\n"
 
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
@@ -82,7 +88,9 @@ static const char* shortopts = "s:b:o:t:r:d:1:a:q:x:p:e:n:m:L:c:";
 
 enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, VERSION, PON_FILE, STRICT_PON_FILE, SOMATIC_CONNECT_ADJACENT, OUTPUT_LOH, OUTPUT_SGE, OUTPUT_LGE, OUTPUT_GE, DISABLE_PON_TAG, DISABLE_CALLING, DISABLE_REFINE_SOMATIC, OPT_PURITY, METHYL_XGB, DISABLE_METHYL_XGB, METHYL_XGB_SNV_THRESHOLD, METHYL_XGB_INDEL_THRESHOLD, METHYL_WINDOW, METH_HIGH, METH_LOW,
        AMBER_LOCI, AMBER_EXCLUDED_BED, AMBER_OUTPUT_DIR, AMBER_SAMPLE,
-       AMBER_MIN_BASE_QUALITY, AMBER_MIN_MAP_QUALITY, AMBER_CPDUMP_DIR};
+       AMBER_MIN_BASE_QUALITY, AMBER_MIN_MAP_QUALITY, AMBER_CPDUMP_DIR,
+       COBALT_GC_PROFILE, COBALT_DIPLOID_BED, COBALT_EXCLUDED_REGIONS,
+       COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY};
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -134,6 +142,12 @@ static const struct option longopts[] = {
     { "amber-min-base-quality", required_argument, NULL, AMBER_MIN_BASE_QUALITY },
     { "amber-min-map-quality",  required_argument, NULL, AMBER_MIN_MAP_QUALITY },
     { "amber-cpdump-dir",     required_argument,  NULL, AMBER_CPDUMP_DIR },
+    { "cobalt-gc-profile",    required_argument,  NULL, COBALT_GC_PROFILE },
+    { "cobalt-diploid-bed",   required_argument,  NULL, COBALT_DIPLOID_BED },
+    { "cobalt-excluded-regions", required_argument, NULL, COBALT_EXCLUDED_REGIONS },
+    { "cobalt-output-dir",    required_argument,  NULL, COBALT_OUTPUT_DIR },
+    { "cobalt-sample",        required_argument,  NULL, COBALT_SAMPLE },
+    { "cobalt-min-map-quality", required_argument, NULL, COBALT_MIN_MAP_QUALITY },
     { NULL, 0, NULL, 0 }
 };
 
@@ -259,6 +273,14 @@ namespace opt
     static int amberMinMapQuality=50;
     static std::string amberCpDumpDir="";
 
+    // ---- COBALT 整合（EXP-I03）----
+    static std::string cobaltGcProfile="";
+    static std::string cobaltDiploidBed="";
+    static std::string cobaltExcludedRegions="";
+    static std::string cobaltOutputDir="";
+    static std::string cobaltSample="";
+    static int cobaltMinMapQuality=10;
+
     static bool outputLOH = false;
     static bool outputSGE = false;
     static bool outputLGE = false;
@@ -367,6 +389,12 @@ void PhasingOptions(int argc, char** argv)
         case AMBER_MIN_BASE_QUALITY: arg >> opt::amberMinBaseQuality; break;
         case AMBER_MIN_MAP_QUALITY: arg >> opt::amberMinMapQuality; break;
         case AMBER_CPDUMP_DIR: arg >> opt::amberCpDumpDir; break;
+        case COBALT_GC_PROFILE: arg >> opt::cobaltGcProfile; break;
+        case COBALT_DIPLOID_BED: arg >> opt::cobaltDiploidBed; break;
+        case COBALT_EXCLUDED_REGIONS: arg >> opt::cobaltExcludedRegions; break;
+        case COBALT_OUTPUT_DIR: arg >> opt::cobaltOutputDir; break;
+        case COBALT_SAMPLE: arg >> opt::cobaltSample; break;
+        case COBALT_MIN_MAP_QUALITY: arg >> opt::cobaltMinMapQuality; break;
         case OPT_HELP:
             std::cout << CORRECT_USAGE_MESSAGE;
             exit(EXIT_SUCCESS);
@@ -447,6 +475,40 @@ void PhasingOptions(int argc, char** argv)
         if(opt::amberOutputDir.empty() != opt::amberSample.empty()){
             std::cerr << SUBPROGRAM
                       << ": --amber-output-dir and --amber-sample must be given together.\n";
+            die = true;
+        }
+    }
+
+    // ---- COBALT 整合的參數檢查（EXP-I03，沿用 D-I2 的規則）----
+    if(opt::cobaltGcProfile.empty() != opt::cobaltExcludedRegions.empty()){
+        std::cerr << SUBPROGRAM
+                  << ": --cobalt-gc-profile and --cobalt-excluded-regions must be given together.\n";
+        die = true;
+    }
+
+    if(!opt::cobaltGcProfile.empty()){
+        std::vector<std::string> needed = {opt::cobaltGcProfile, opt::cobaltExcludedRegions};
+        if(!opt::cobaltDiploidBed.empty()){ needed.push_back(opt::cobaltDiploidBed); }
+        for(const std::string &path : needed){
+            std::ifstream openFile(path.c_str());
+            if(!openFile.is_open()){
+                std::cerr << "File " << path << " not exist.\n\n";
+                die = true;
+            }
+        }
+
+        // 與 AMBER 同一個理由：COBALT 消費同一次共用走訪，多個 BAM 時每條 read
+        // 會被累加不只一次，window 計數必然錯。
+        if(opt::bamFile.size() != 1){
+            std::cerr << SUBPROGRAM
+                      << ": --cobalt-gc-profile requires exactly one -b BAM input (got "
+                      << opt::bamFile.size() << ").\n";
+            die = true;
+        }
+
+        if(opt::cobaltOutputDir.empty() != opt::cobaltSample.empty()){
+            std::cerr << SUBPROGRAM
+                      << ": --cobalt-output-dir and --cobalt-sample must be given together.\n";
             die = true;
         }
     }
@@ -670,6 +732,13 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.amberMinBaseQuality = opt::amberMinBaseQuality;
     ecParams.amberMinMapQuality = opt::amberMinMapQuality;
     ecParams.amberCpDumpDir = opt::amberCpDumpDir;
+
+    ecParams.cobaltGcProfile = opt::cobaltGcProfile;
+    ecParams.cobaltDiploidBed = opt::cobaltDiploidBed;
+    ecParams.cobaltExcludedRegions = opt::cobaltExcludedRegions;
+    ecParams.cobaltOutputDir = opt::cobaltOutputDir;
+    ecParams.cobaltSampleId = opt::cobaltSample;
+    ecParams.cobaltMinMapQuality = opt::cobaltMinMapQuality;
 
     PhasingProcess processor(ecParams);
 

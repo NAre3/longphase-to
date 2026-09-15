@@ -7,6 +7,9 @@
 
 #include "amber/AmberPipeline.h"
 #include "amber/SharedScanSink.h"
+#include "cobalt/CobaltConstants.h"
+#include "cobalt/CobaltPipeline.h"
+#include "cobalt/ReadDepth.h"
 #include "common/CpDump.h"
 
 PhasingProcess::PhasingProcess(PhasingParameters params)
@@ -174,6 +177,66 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         }
     }
 
+    // ---- COBALT prescan（EXP-I03）----
+    //
+    // CP-C1 → CP-C5 在共用走訪之前完成。與 AMBER 不同的是 COBALT 只需要**一個**
+    // 全域 accumulator：ReadDepthAccumulator 內部依染色體分槽、各槽自己的 atomic
+    // 陣列，故不同執行緒寫不同染色體的槽互不干擾（design.md E1）。
+    cobalt::PipelineConfig cobaltCfg;
+    cobalt::PrescanResult cobaltPrescan;
+    std::unique_ptr<cobalt::ReadDepthAccumulator> cobaltAccumulator;
+    std::vector<cobalt::DepthSink *> cobaltSinks;
+    std::map<std::string, int> cobaltContigLength;
+
+    if(params.cobaltEnabled()){
+        cobaltCfg.bamPath = params.bamFile.front();
+        cobaltCfg.gcProfile = params.cobaltGcProfile;
+        cobaltCfg.diploidBed = params.cobaltDiploidBed;
+        cobaltCfg.excludedPath = params.cobaltExcludedRegions;
+        cobaltCfg.outputDir = params.cobaltOutputDir.empty() ? "." : params.cobaltOutputDir;
+        cobaltCfg.sampleId = params.cobaltSampleId.empty() ? "tumor" : params.cobaltSampleId;
+        cobaltCfg.minMappingQuality = params.cobaltMinMapQuality;
+        cobaltCfg.threads = params.numThreads;
+
+        if(!params.amberEnabled()){
+            lp::CpDump::setDir(params.amberCpDumpDir);
+        }
+
+        begin = time(NULL);
+        std::cerr<< "COBALT prescan ... ";
+        cobaltPrescan = cobalt::prescan(cobaltCfg);
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
+
+        // COBALT 的 contig 來自 BAM header @SQ 過濾 isHumanChromosome（CobaltApplication.cpp:38-59），
+        // 與候選 VCF、AMBER 的清單都可能不同 ⇒ 併進 scanContigs（C4 / design.md E2）。
+        std::set<std::string> known(scanContigs.begin(), scanContigs.end());
+        for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
+            cobaltContigLength[c.name] = c.length;
+            if(known.insert(c.name).second){
+                scanContigs.push_back(c.name);
+            }
+        }
+
+        cobaltAccumulator.reset(new cobalt::ReadDepthAccumulator(cobalt::WINDOW_SIZE));
+        for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
+            cobaltAccumulator->addChromosome(c.name, c.length);
+        }
+    }
+
+    // scanContigs 可能因 COBALT 而變長，amberSinks 的索引必須重新對齊
+    amberSinks.resize(scanContigs.size(), nullptr);
+    cobaltSinks.assign(scanContigs.size(), nullptr);
+    if(params.cobaltEnabled()){
+        for(std::size_t i = 0; i < scanContigs.size(); i++){
+            std::map<std::string, int>::const_iterator found = cobaltContigLength.find(scanContigs[i]);
+            if(found == cobaltContigLength.end()){
+                continue;   // 此 contig 不在 COBALT 的清單內（非人類染色體）
+            }
+            cobaltSinks[i] = new cobalt::DepthSink(*cobaltAccumulator, scanContigs[i], found->second,
+                    cobaltCfg.minMappingQuality, cobaltCfg.includeDuplicates);
+        }
+    }
+
     // loop all chromosome
     #pragma omp parallel for schedule(dynamic) num_threads(params.numThreads)
     for(int scanIdx = 0; scanIdx < static_cast<int>(scanContigs.size()); scanIdx++ ){
@@ -182,6 +245,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         std::string contigName = scanContigs[scanIdx];
         std::time_t chrbegin = time(NULL);
         amber::ContigSink *amberSink = amberSinks[scanIdx];
+        cobalt::DepthSink *cobaltSink = cobaltSinks[scanIdx];
 
         // get lase SNP variant position
         // scanContigs 的尾段可能是 AMBER 專屬的 contig，那些不在 snpFile 內。
@@ -193,15 +257,20 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         if( amberSink != nullptr ){
             scanRightEdge = std::max(scanRightEdge, amberSink->maxTaskEnd());
         }
+        // COBALT 要每個 window 都被看到 ⇒ 右界推到整條 contig（design.md E3）。
+        // **F3 因此必須在 EXP-I03 重新量測，不得沿用 EXP-I02 的結果。**
+        if( cobaltSink != nullptr ){
+            scanRightEdge = std::max(scanRightEdge, cobaltContigLength[contigName]);
+        }
 
         // therer is no variant on SNP file.
         if( lastSNPpos == -1 ){
             // D7：沒有候選變異的 contig 現在仍必須被掃描給 AMBER，只跳過 clip／graph／phasing。
             // BamParser 在此建不出來（D4：建構子對空 variant map 直接 exit(1)），
             // 故走另一個進入點。
-            if( amberSink != nullptr && scanRightEdge > 0 ){
-                amberOnlyContigScan(params.bamFile.front(), contigName, scanRightEdge,
-                        threadPool, params, *amberSink);
+            if( (amberSink != nullptr || cobaltSink != nullptr) && scanRightEdge > 0 ){
+                consumerOnlyContigScan(params.bamFile.front(), contigName, scanRightEdge,
+                        threadPool, params, amberSink, cobaltSink);
             }
             continue;
         }
@@ -215,7 +284,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         // use to store variant
         std::vector<ReadVariant> *readVariantVec = new std::vector<ReadVariant>();
         // run fetch variant process
-        bamParser->direct_detect_alleles(lastSNPpos, scanRightEdge, threadPool, params, *readVariantVec, chrInfo.clipCount, chr_reference, amberSink);
+        bamParser->direct_detect_alleles(lastSNPpos, scanRightEdge, threadPool, params, *readVariantVec, chrInfo.clipCount, chr_reference, amberSink, cobaltSink);
         // free memory
         delete bamParser;
 
@@ -288,6 +357,34 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         begin = time(NULL);
         std::cerr<< "AMBER postscan ... ";
         amber::postscan(amberCfg, amberPrescan.evidence, amberStats);
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
+    }
+
+    // ---- COBALT postscan（EXP-I03）----
+    //
+    // CP-C6 → CP-C14 與三個 stage 輸出。呼叫的是 cobalt_port 用的同一組函式。
+    // depths 由 accumulator 依 prescan 的 chromosomes 順序取出——**該順序取自
+    // BAM header @SQ，與共用走訪的 contig 順序無關**（design.md E2），
+    // 因此 scanContigs 的排法不影響 COBALT 的任何輸出。
+    if(params.cobaltEnabled()){
+        std::cerr << std::endl;
+
+        for(cobalt::DepthSink *sink : cobaltSinks){
+            delete sink;
+        }
+        cobaltSinks.clear();
+
+        std::vector<cobalt::DepthReading> depths;
+        for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
+            std::vector<cobalt::DepthReading> v =
+                    cobaltAccumulator->getChromosomeReadDepths(c.name);
+            depths.insert(depths.end(), std::make_move_iterator(v.begin()),
+                    std::make_move_iterator(v.end()));
+        }
+
+        begin = time(NULL);
+        std::cerr<< "COBALT postscan ... ";
+        cobalt::postscan(cobaltCfg, cobaltPrescan, depths);
         std::cerr<< difftime(time(NULL), begin) << "s\n";
     }
 

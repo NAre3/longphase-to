@@ -1169,7 +1169,7 @@ BamParser::~BamParser(){
     delete currentMod;
 }
 
-void BamParser::direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThreadPool &threadPool, PhasingParameters params, std::vector<ReadVariant> &readVariantVec, ClipCount &clipCount, const std::string &ref_string, amber::ContigSink *amberSink){
+void BamParser::direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThreadPool &threadPool, PhasingParameters params, std::vector<ReadVariant> &readVariantVec, ClipCount &clipCount, const std::string &ref_string, amber::ContigSink *amberSink, cobalt::DepthSink *cobaltSink){
     
     // record SNP start iter
     std::map<int, RefAlt>::iterator tmpFirstVariantIter = firstVariantIter;
@@ -1218,6 +1218,9 @@ void BamParser::direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThre
             if (amberSink != nullptr) {
                 amberSink->consume(aln);
             }
+            if (cobaltSink != nullptr) {
+                cobaltSink->consume(aln);
+            }
 
             // LongPhase-TO 消費者的閘門（design.md D6）：
             // 原本的 iterator 是 chr:1-lastSNPPos，其記錄集合等價於「與 [1, lastSNPPos] 重疊」，
@@ -1256,9 +1259,9 @@ void BamParser::direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThre
 // 與 direct_detect_alleles 的差別只有「沒有 LongPhase-TO 消費者」：不建 BamParser、
 // 不碰候選變異、不碰參考序列。htslib 的開關檔樣板刻意與上面那份保持一致而非抽共用函式——
 // 上面那份是凍結行為的熱路徑，讓它維持原樣比省二十行重複碼重要。
-void amberOnlyContigScan(const std::string &bamFile, const std::string &chrName,
+void consumerOnlyContigScan(const std::string &bamFile, const std::string &chrName,
         int scanRightEdge, htsThreadPool &threadPool, const PhasingParameters &params,
-        amber::ContigSink &amberSink){
+        amber::ContigSink *amberSink, cobalt::DepthSink *cobaltSink){
 
     samFile *fp_in = hts_open(bamFile.c_str(),"r");
     hts_set_fai_filename(fp_in, params.fastaFile.c_str() );
@@ -1281,7 +1284,7 @@ void amberOnlyContigScan(const std::string &bamFile, const std::string &chrName,
     // **但它也是染色體命名不一致（"chr1" vs "1"）會表現出來的樣子**，而那種情形下
     // AMBER 會整條染色體靜默地全零。因此一律出聲，不讓它無聲通過。
     if (iter == NULL) {
-        std::cerr << "warning: AMBER contig " << chrName
+        std::cerr << "warning: contig " << chrName
                   << " not found in BAM header; its loci stay at zero\n";
         hts_idx_destroy(idx);
         bam_hdr_destroy(bamHdr);
@@ -1293,7 +1296,12 @@ void amberOnlyContigScan(const std::string &bamFile, const std::string &chrName,
     hts_set_opt(fp_in, HTS_OPT_THREAD_POOL, &threadPool);
     int result;
     while ((result = sam_itr_multi_next(fp_in, iter, aln)) >= 0) {
-        amberSink.consume(aln);
+        if (amberSink != nullptr) {
+            amberSink->consume(aln);
+        }
+        if (cobaltSink != nullptr) {
+            cobaltSink->consume(aln);
+        }
     }
 
     hts_idx_destroy(idx);

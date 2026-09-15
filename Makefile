@@ -17,11 +17,31 @@ OBJ = Haplotag.o ParsingBam.o Util.o HaplotagProcess.o PhasingProcess.o Phasing.
 # amber/AmberApplication.o **不在此列**：那是 amber_port 的 main()，
 # 連進 longphase-to 會與 main.o 的 main() 撞名。整合版用的是 AmberPipeline 的
 # prescan/postscan——與 amber_port 呼叫的同一組函式。
-AMBER_OBJ = amber/AmberPipeline.o amber/SharedScanSink.o amber/AmberOutput.o \
-            amber/AmberSitesFile.o amber/BamEvidenceReader.o amber/TumorFilters.o \
-            amber/NoiseFloor.o amber/CommonsMath.o amber/Segmentation.o \
-            common/CpDump.o common/HumanChromosome.o common/SamRecordView.o \
-            common/Segmentation.o
+# **物件檔一律放進 build/obj/，不放回原始碼目錄。**
+# 理由（EXP-I03 發現）：amber/Makefile 與 cobalt/Makefile 用 -O2 編到 amber/*.o、
+# cobalt/*.o，主 build 用 -O3 -g 編到同一批路徑。兩者互相覆蓋，且 make 看到 .o
+# 是新的就不重編——於是 amber_port / cobalt_port 究竟用哪組旗語建成，
+# 取決於「誰後跑」。保真度關鍵的 -ffp-contract=off 兩邊都有，所以輸出不受影響，
+# 但這是靜默的建置不確定性，必須消除。分開輸出目錄即可。
+AMBER_OBJ = $(OBJDIR)/amber/AmberPipeline.o $(OBJDIR)/amber/SharedScanSink.o \
+            $(OBJDIR)/amber/AmberOutput.o $(OBJDIR)/amber/AmberSitesFile.o \
+            $(OBJDIR)/amber/BamEvidenceReader.o $(OBJDIR)/amber/TumorFilters.o \
+            $(OBJDIR)/amber/NoiseFloor.o $(OBJDIR)/amber/CommonsMath.o \
+            $(OBJDIR)/amber/Segmentation.o \
+            $(COBALT_OBJ) \
+            $(OBJDIR)/common/CpDump.o $(OBJDIR)/common/HumanChromosome.o \
+            $(OBJDIR)/common/SamRecordView.o $(OBJDIR)/common/Segmentation.o
+
+OBJDIR = build/obj
+
+# cobalt/CobaltApplication.o 同樣**不在此列**：那是 cobalt_port 的 main()。
+# 整合版用的是 CobaltPipeline 的 prescan/postscan——與 cobalt_port 同一組函式。
+COBALT_OBJ = $(OBJDIR)/cobalt/CobaltPipeline.o $(OBJDIR)/cobalt/BamRatio.o \
+             $(OBJDIR)/cobalt/CobaltOutput.o $(OBJDIR)/cobalt/CobaltWindow.o \
+             $(OBJDIR)/cobalt/Consolidation.o $(OBJDIR)/cobalt/GcBuckets.o \
+             $(OBJDIR)/cobalt/GcProfile.o $(OBJDIR)/cobalt/Percentile.o \
+             $(OBJDIR)/cobalt/Segmentation.o $(OBJDIR)/cobalt/ReadDepth.o \
+             $(OBJDIR)/cobalt/Regions.o $(OBJDIR)/cobalt/WindowStatuses.o
 
 # -ffp-contract=off 是**保真度旗標，不是最佳化偏好**：它決定 NoiseFloor 的 CDF
 # 是否與凍結候選逐位元組相同（amber/Makefile 的註解：61366 組中 5988 組會因收縮而變），
@@ -66,13 +86,19 @@ $(PROGRAMS): $(OBJ)
 	$(CXX) $(ALL_CPPFLAGS) -MMD -MP -MF $(DEPDIR)/$*.d -MT $@ -o $@ -c $<
 
 # amber/ 與 common/ 的物件多帶 -ffp-contract=off（見 AMBER_CXXFLAGS 的說明）
-amber/%.o: amber/%.cpp | $(DEPDIR)
-	mkdir -p $(DEPDIR)/amber
-	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/$*.d -MT $@ -o $@ -c $<
+$(OBJDIR)/amber/%.o: amber/%.cpp | $(DEPDIR)
+	mkdir -p $(OBJDIR)/amber $(DEPDIR)/amber
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/amber/$*.d -MT $@ -o $@ -c $<
 
-common/%.o: common/%.cpp | $(DEPDIR)
-	mkdir -p $(DEPDIR)/common
-	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/$*.d -MT $@ -o $@ -c $<
+$(OBJDIR)/common/%.o: common/%.cpp | $(DEPDIR)
+	mkdir -p $(OBJDIR)/common $(DEPDIR)/common
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/common/$*.d -MT $@ -o $@ -c $<
+
+# cobalt/ 的物件與 amber/ 同樣需要 -ffp-contract=off：cobalt/Makefile:7 的理由相同
+# ——輸出不得隨編譯器與 -march 飄移，否則破壞規格 §6 的 rerun_pass。
+$(OBJDIR)/cobalt/%.o: cobalt/%.cpp | $(DEPDIR)
+	mkdir -p $(OBJDIR)/cobalt $(DEPDIR)/cobalt
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/cobalt/$*.d -MT $@ -o $@ -c $<
 
 MethylXgbModel.o: MethylXgbModel.cpp MethylXgbModel.h MethylXgbModelData.inc
 
@@ -82,7 +108,8 @@ $(DEPDIR):
 -include $(DEPS)
 
 mostlyclean:
-	-rm -f *.o *.d amber/*.o common/*.o
+	-rm -f *.o *.d
+	-rm -rf $(OBJDIR)
 	-rm -rf $(DEPDIR)
 
 clean: mostlyclean

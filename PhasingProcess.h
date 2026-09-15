@@ -66,7 +66,16 @@ struct PhasingParameters
     int amberMinMapQuality = 50;    // amber::DEFAULT_MIN_MAPPING_QUALITY
     std::string amberCpDumpDir = "";
 
+    // EXP-I03：COBALT 的三個必填資源 + 選用輸出。
+    std::string cobaltGcProfile = "";
+    std::string cobaltDiploidBed = "";
+    std::string cobaltExcludedRegions = "";
+    std::string cobaltOutputDir = "";
+    std::string cobaltSampleId = "";
+    int cobaltMinMapQuality = 10;   // cobalt::DEFAULT -min_quality
+
     bool amberEnabled() const { return !amberLoci.empty(); }
+    bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }
 };
 
 class PhasingProcess

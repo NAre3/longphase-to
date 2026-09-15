@@ -176,6 +176,38 @@ std::vector<DepthReading> ReadDepthAccumulator::getChromosomeReadDepths(const st
     return out;
 }
 
+// 共用掃描層（EXP-I03）。函式體就是 calculateReadDepths 內層 while 迴圈的那一段，
+// **逐字相同**，只是把 region 固定成 {chromosome, 1, contigLength}（design.md E1）。
+// 兩條路徑因此走同一份過濾與裁切邏輯。
+DepthSink::DepthSink(ReadDepthAccumulator &accumulator, std::string chromosome, int contigLength,
+                     int minMappingQuality, bool includeDuplicates)
+    : mAccumulator(accumulator), mChromosome(std::move(chromosome)), mContigLength(contigLength),
+      mMinMappingQuality(minMappingQuality), mIncludeDuplicates(includeDuplicates)
+{
+}
+
+void DepthSink::consume(const bam1_t *rec)
+{
+    // COBALT 自己的 filter。**不可與 AMBER 共用**：COBALT 排除 qual < 10（嚴格），
+    // AMBER 在 read 層完全不過濾（其 MAPQ 是在 addEvidence 內計數而非丟棄）。
+    // 把 MAPQ 上提到共用層會讓 AMBER 的 ReadDepth 少算而其餘欄位不變——ALT-1 的表徵。
+    if(!passesFilters(rec, mMinMappingQuality)){ return; }
+
+    // processRead 的第二道檢查（與 calculateReadDepths 同）
+    if(mIncludeDuplicates){ if(bam_aux_get(rec, "CR") != nullptr){ return; } }
+    else                  { if((rec->core.flag & BAM_FDUP) != 0){ return; } }
+
+    const std::string bases = readBasesOf(rec);
+    for(const AlignmentBlock &block : alignmentBlocks(rec))
+    {
+        const int genomeStart = std::max(block.referenceStart, 1);
+        const int length = std::min(block.referenceStart + block.length, mContigLength + 1) - genomeStart;
+        if(length <= 0){ continue; }
+        const int readStartIndex = (block.readStart - 1) + (genomeStart - block.referenceStart);
+        mAccumulator.addReadAlignmentToCounts(mChromosome, genomeStart, length, bases, readStartIndex);
+    }
+}
+
 std::vector<DepthReading> calculateReadDepths(const std::string &bamPath,
                                               const std::vector<ChromosomeSpec> &chromosomes,
                                               const std::vector<lp::ChrBaseRegion> &partitions,

@@ -16,6 +16,7 @@
 #include <random>
 
 #include "amber/SharedScanSink.h"
+#include "cobalt/ReadDepth.h"
 
 enum CIGAR_OP {
     MATCH = 0,     // alignment match (can be a sequence match or mismatch)
@@ -292,7 +293,7 @@ class BamParser{
         // 放寬右界只會在尾端追加記錄，而追加的記錄一律被下方的 alignmentStart 閘門擋掉。
         //
         // amberSink 為 nullptr 時本函式的行為與整合前完全相同（F3 的對照基準）。
-        void direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThreadPool &threadPool, PhasingParameters params, std::vector<ReadVariant> &readVariantVec, ClipCount &clipCount, const std::string &ref_string, amber::ContigSink *amberSink);
+        void direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThreadPool &threadPool, PhasingParameters params, std::vector<ReadVariant> &readVariantVec, ClipCount &clipCount, const std::string &ref_string, amber::ContigSink *amberSink, cobalt::DepthSink *cobaltSink);
 
 };
 
@@ -302,9 +303,11 @@ class BamParser{
 // 直接 `exit(1)`，因此對「BAM header 有、候選 VCF 沒有」的 contig 根本建不出來。
 // 這類 contig 也沒有參考序列可用（design.md D5：FastaParser 只載入 VCF contig），
 // 但 AMBER 的鹼基一律取自 record 本身，不需要參考序列。
-void amberOnlyContigScan(const std::string &bamFile, const std::string &chrName,
+// EXP-I03：改名並泛化——沒有 LongPhase-TO 消費者的 contig 掃描。
+// 兩個 sink 皆可為 nullptr（但至少要有一個，否則呼叫端根本不該進來）。
+void consumerOnlyContigScan(const std::string &bamFile, const std::string &chrName,
         int scanRightEdge, htsThreadPool &threadPool, const PhasingParameters &params,
-        amber::ContigSink &amberSink);
+        amber::ContigSink *amberSink, cobalt::DepthSink *cobaltSink);
 
 
 class GenomicWriter {
