@@ -121,10 +121,11 @@ std::vector<SupportSegment> segmentsForChromosome(const std::string &chromosome,
         result.push_back(segment);
         int minStart = first.position;
         int maxStart = first.position;
+        bool hasTumorRatio = false;
         for(const PcfPosition &position : cluster.positions){
-            if(position.source == PcfSource::TUMOR_RATIO || position.source == PcfSource::REFERENCE_RATIO){
-                minStart = std::min(minStart, position.minPosition);
-                maxStart = std::max(maxStart, position.maxPosition);
+            if(position.source == PcfSource::TUMOR_RATIO){
+                if(!hasTumorRatio){ minStart = position.minPosition; maxStart = position.maxPosition; hasTumorRatio = true; }
+                else { minStart = std::min(minStart, position.minPosition); maxStart = std::max(maxStart, position.maxPosition); }
             }
         }
         // PurpleSupportSegmentFactory.createPcfSegment always marks PCF-only

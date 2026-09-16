@@ -91,6 +91,23 @@ bool diploidBafChromosome(const std::string &chromosome, Gender gender){
     return lp::isHumanChromosome(chromosome);
 }
 
+GermlineStatus germlineStatus(const SupportSegment &segment, Gender gender,
+        double normalRatio, double tumorRatio, int depthWindowCount){
+    if(excludedStatus(segment)){ return GermlineStatus::EXCLUDED; }
+    if(within(segment.start, segment.end, centromere(segment.chromosome) - 2000000,
+              centromere(segment.chromosome) + 2000000)){ return GermlineStatus::CENTROMETIC; }
+    const std::string chromosome = lp::stripChrPrefix(segment.chromosome);
+    if(depthWindowCount == 0 || (chromosome == "Y" && gender == Gender::FEMALE)){ return GermlineStatus::UNKNOWN; }
+    const double adjustment = (chromosome == "X" || chromosome == "Y") && gender == Gender::MALE ? 0.5 : 1.0;
+    if(normalRatio < 0.1 * adjustment - 1e-10 && tumorRatio < 0.1 * adjustment - 1e-10){ return GermlineStatus::HOM_DELETION; }
+    if(normalRatio < 0.7 * adjustment - 1e-10){ return GermlineStatus::HET_DELETION; }
+    if(normalRatio < 0.85 * adjustment - 1e-10){ return GermlineStatus::LIKELY_DIPLOID; }
+    if(normalRatio < 1.15 * adjustment - 1e-10){ return GermlineStatus::DIPLOID; }
+    if(normalRatio < 1.3 * adjustment - 1e-10){ return GermlineStatus::LIKELY_DIPLOID; }
+    if(normalRatio < 2.2 * adjustment - 1e-10){ return GermlineStatus::AMPLIFICATION; }
+    return GermlineStatus::NOISE;
+}
+
 }
 
 std::vector<ObservedRegion> createObservedRegions(const InputData &data, const std::vector<SupportSegment> &segments){
@@ -154,11 +171,8 @@ std::vector<ObservedRegion> createObservedRegions(const InputData &data, const s
         observed.unnormalisedObservedNormalRatio = referenceCount > 0 ? rawReferenceSum / referenceCount : 0;
         observed.gcContent = tumorCount > 0 ? tumorContentSum / tumorCount : 0;
 
-        if(excludedStatus(segment)){ observed.germlineStatus = GermlineStatus::EXCLUDED; }
-        else if(within(segment.start, segment.end, centromere(segment.chromosome) - 2000000,
-                       centromere(segment.chromosome) + 2000000)){ observed.germlineStatus = GermlineStatus::CENTROMETIC; }
-        else if(lp::stripChrPrefix(segment.chromosome) == "Y" || tumorCount == 0){ observed.germlineStatus = GermlineStatus::UNKNOWN; }
-        else { observed.germlineStatus = GermlineStatus::DIPLOID; }
+        observed.germlineStatus = germlineStatus(segment, data.cobaltGender, observed.observedNormalRatio,
+                                                 observed.observedTumorRatio, tumorCount);
         result.push_back(std::move(observed));
     }
 

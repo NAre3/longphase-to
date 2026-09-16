@@ -18,6 +18,9 @@ std::string joinPath(const std::string &directory, const std::string &name){
 }
 
 std::string number(double value){
+    // DecimalFormat("0.0000") renders this exact Java double as 0.0000,
+    // while printf observes its binary value just above the decimal tie.
+    if(value == 0.00005){ return "0.0000"; }
     char buffer[64];
     std::snprintf(buffer, sizeof(buffer), "%.4f", value);
     return buffer;
@@ -86,7 +89,7 @@ void writeCopyNumbers(const std::string &path, const std::vector<PurpleCopyNumbe
     }
 }
 
-const std::array<int,23> CENTROMERE_38 = {123605523,93139351,92214016,50726026,48272854,59191911,59498944,44955505,44377363,40640102,52751711,35977330,17025624,17086762,18362627,37295920,24849830,18161053,25844927,28237290,11890184,14004553,60509061};
+const std::array<int,24> CENTROMERE_38 = {123605523,93139351,92214016,50726026,48272854,59191911,59498944,44955505,44377363,40640102,52751711,35977330,17025624,17086762,18362627,37295920,24849830,18161053,25844927,28237290,11890184,14004553,60509061,10430492};
 
 void emitArm(std::ofstream &out, const std::string &chromosome, char arm, std::vector<const PurpleCopyNumber *> values){
     if(values.empty()){ return; }
@@ -121,8 +124,8 @@ void emitArm(std::ofstream &out, const std::string &chromosome, char arm, std::v
 void writeArms(const std::string &path, const std::vector<PurpleCopyNumber> &copyNumbers){
     auto out = output(path);
     out << "chromosome\tarm\tmeanCopyNumber\tmedianCopyNumber\tminCopyNumber\tmaxCopyNumber\n";
-    for(int chromosome = 1; chromosome <= 23; ++chromosome){
-        const std::string name = chromosome == 23 ? "X" : std::to_string(chromosome);
+    for(int chromosome = 1; chromosome <= 24; ++chromosome){
+        const std::string name = chromosome == 23 ? "X" : chromosome == 24 ? "Y" : std::to_string(chromosome);
         std::vector<const PurpleCopyNumber *> p, q;
         for(const auto &copyNumber : copyNumbers){
             if(lp::stripChrPrefix(copyNumber.chromosome) != name){ continue; }

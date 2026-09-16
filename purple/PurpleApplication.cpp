@@ -48,9 +48,9 @@ int main(int argc, char **argv){
         purple::dumpPurityGrid(fits);
         const auto bestFit = purple::selectTumorOnlyBestFit(fits, observed);
         purple::dumpBestFit(bestFit);
-        const auto fittedRegions = purple::fitObservedRegions(observed, bestFit.fit, inputs.averageTumorDepth);
+        const auto fittedRegions = purple::fitObservedRegions(observed, bestFit.fit, inputs.averageTumorDepth, inputs.cobaltGender);
         purple::dumpFittedRegions(fittedRegions);
-        const auto copyNumbers = purple::buildCopyNumbers(fittedRegions, bestFit.fit);
+        const auto copyNumbers = purple::buildCopyNumbers(fittedRegions, bestFit.fit, inputs.cobaltGender);
         purple::dumpCopyNumbers(copyNumbers);
         const auto summary = purple::buildSummaryContext(inputs, bestFit, copyNumbers, ensembl);
         purple::dumpSummaryContext(inputs, bestFit, copyNumbers, summary);

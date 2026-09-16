@@ -241,15 +241,18 @@ BestFit selectTumorOnlyBestFit(const std::vector<FittedPurity> &fits, const std:
 }
 
 std::vector<ObservedRegion> fitObservedRegions(
-        const std::vector<ObservedRegion> &regions, const FittedPurity &fit, int averageTumorDepth){
+        const std::vector<ObservedRegion> &regions, const FittedPurity &fit, int averageTumorDepth, Gender gender){
     std::vector<ObservedRegion> result;
     result.reserve(regions.size());
     const double ambiguous = expectedBaf(averageTumorDepth);
     for(const auto &source : regions){
-        if(lp::stripChrPrefix(source.segment.chromosome) == "Y"){ continue; }
+        const std::string chromosome = lp::stripChrPrefix(source.segment.chromosome);
+        if(chromosome == "Y" && gender == Gender::FEMALE){ continue; }
+        const double germlineRatio = (chromosome == "X" || chromosome == "Y") && gender == Gender::MALE ? 0.5 : 1.0;
         ObservedRegion region = source;
-        region.tumorCopyNumber = adjustedCopyNumber(region.observedTumorRatio, 1, fit.purity, fit.normFactor);
-        region.tumorBaf = impliedBaf(region.tumorCopyNumber, region.observedBaf, fit.purity, fit.normFactor, ambiguous);
+        region.tumorCopyNumber = adjustedCopyNumber(region.observedTumorRatio, germlineRatio, fit.purity, fit.normFactor);
+        region.tumorBaf = germlineRatio == 1.0
+                ? impliedBaf(region.tumorCopyNumber, region.observedBaf, fit.purity, fit.normFactor, ambiguous) : 1.0;
         region.refNormalisedCopyNumber = adjustedCopyNumber(
                 region.observedTumorRatio, region.observedNormalRatio, fit.purity, fit.normFactor);
         const double major = region.tumorBaf * region.tumorCopyNumber;

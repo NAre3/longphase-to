@@ -83,10 +83,15 @@ struct SupportSegment {
     int maxStart = 0;
 };
 
-enum class GermlineStatus { UNKNOWN, DIPLOID, CENTROMETIC, EXCLUDED };
+enum class GermlineStatus { UNKNOWN, HOM_DELETION, HET_DELETION, LIKELY_DIPLOID, DIPLOID, AMPLIFICATION, NOISE, CENTROMETIC, EXCLUDED };
 
 inline const char *germlineStatusName(GermlineStatus status){
     if(status == GermlineStatus::DIPLOID){ return "DIPLOID"; }
+    if(status == GermlineStatus::HOM_DELETION){ return "HOM_DELETION"; }
+    if(status == GermlineStatus::HET_DELETION){ return "HET_DELETION"; }
+    if(status == GermlineStatus::LIKELY_DIPLOID){ return "LIKELY_DIPLOID"; }
+    if(status == GermlineStatus::AMPLIFICATION){ return "AMPLIFICATION"; }
+    if(status == GermlineStatus::NOISE){ return "NOISE"; }
     if(status == GermlineStatus::CENTROMETIC){ return "CENTROMETIC"; }
     if(status == GermlineStatus::EXCLUDED){ return "EXCLUDED"; }
     return "UNKNOWN";

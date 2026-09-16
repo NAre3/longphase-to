@@ -3,7 +3,7 @@
 #include <vector>
 #include "PurpleTypes.h"
 namespace purple {
-std::vector<PurpleCopyNumber> buildCopyNumbers(const std::vector<ObservedRegion> &fittedRegions, const FittedPurity &fit);
+std::vector<PurpleCopyNumber> buildCopyNumbers(const std::vector<ObservedRegion> &fittedRegions, const FittedPurity &fit, Gender gender);
 void dumpCopyNumbers(const std::vector<PurpleCopyNumber> &copyNumbers);
 }
 #endif
