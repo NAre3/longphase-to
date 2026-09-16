@@ -102,6 +102,15 @@ struct ObservedRegion {
     double unnormalisedObservedNormalRatio = 0;
     GermlineStatus germlineStatus = GermlineStatus::UNKNOWN;
     double gcContent = 0;
+    double minorAlleleCopyNumberDeviation = 0;
+    double majorAlleleCopyNumberDeviation = 0;
+    double deviationPenalty = 0;
+    double eventPenalty = 0;
+    double refNormalisedCopyNumber = 0;
+    double tumorCopyNumber = 0;
+    double tumorBaf = 0;
+    double fittedTumorCopyNumber = 0;
+    double fittedBaf = 0;
 };
 
 struct FittedPurity {
@@ -111,6 +120,18 @@ struct FittedPurity {
     double score = 0;
     double diploidProportion = 0;
     double somaticPenalty = 0;
+};
+
+struct FittedPurityScore {
+    double minPurity = 0, maxPurity = 0;
+    double minPloidy = 0, maxPloidy = 0;
+    double minDiploidProportion = 0, maxDiploidProportion = 0;
+};
+
+struct BestFit {
+    FittedPurity fit;
+    FittedPurityScore score;
+    std::string method;
 };
 
 }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -33,10 +34,10 @@ std::unordered_map<std::string, std::size_t> columns(const std::string &header){
     return result;
 }
 
-std::vector<std::string> readGzipLines(const std::string &path){
+template<typename Consumer>
+void forEachGzipLine(const std::string &path, Consumer consumer){
     gzFile input = gzopen(path.c_str(), "rb");
     if(input == nullptr){ throw std::runtime_error("unable to open gzip input: " + path); }
-    std::vector<std::string> lines;
     std::string line;
     char buffer[65536];
     while(gzgets(input, buffer, sizeof(buffer)) != nullptr){
@@ -44,14 +45,19 @@ std::vector<std::string> readGzipLines(const std::string &path){
         if(!line.empty() && line.back() == '\n'){
             line.pop_back();
             if(!line.empty() && line.back() == '\r'){ line.pop_back(); }
-            lines.push_back(std::move(line));
+            consumer(line);
             line.clear();
         }
     }
-    if(!line.empty()){ lines.push_back(std::move(line)); }
+    if(!line.empty()){ consumer(line); }
     const int status = gzclose(input);
     if(status != Z_OK){ throw std::runtime_error("error reading gzip input: " + path); }
-    return lines;
+}
+
+std::size_t gzipDataLineCount(const std::string &path){
+    std::size_t lines = 0;
+    forEachGzipLine(path, [&](const std::string &){ ++lines; });
+    return lines == 0 ? 0 : lines - 1;
 }
 
 bool isChr(const std::string &value, const char *name){
@@ -73,13 +79,13 @@ std::string boolean(bool value){ return value ? "true" : "false"; }
 }
 
 std::vector<AmberBaf> readAmberBafs(const std::string &path){
-    const auto lines = readGzipLines(path);
-    if(lines.empty()){ throw std::runtime_error("empty Amber BAF input: " + path); }
-    const auto col = columns(lines.front());
     std::vector<AmberBaf> result;
-    result.reserve(lines.size() - 1);
-    for(std::size_t i = 1; i < lines.size(); ++i){
-        const auto row = split(lines[i]);
+    result.reserve(gzipDataLineCount(path));
+    std::unordered_map<std::string, std::size_t> col;
+    bool header = true;
+    forEachGzipLine(path, [&](const std::string &line){
+        if(header){ col = columns(line); header = false; return; }
+        const auto row = split(line);
         AmberBaf baf;
         baf.chromosome = row.at(col.at("chromosome"));
         baf.position = std::stoi(row.at(col.at("position")));
@@ -88,18 +94,19 @@ std::vector<AmberBaf> readAmberBafs(const std::string &path){
         baf.normalBaf = std::stod(row.at(col.at("normalBAF")));
         baf.normalDepth = std::stoi(row.at(col.at("normalDepth")));
         result.push_back(std::move(baf));
-    }
+    });
+    if(header){ throw std::runtime_error("empty Amber BAF input: " + path); }
     return result;
 }
 
 std::vector<CobaltRatio> readCobaltRatios(const std::string &path, Gender gender){
-    const auto lines = readGzipLines(path);
-    if(lines.empty()){ throw std::runtime_error("empty Cobalt ratio input: " + path); }
-    const auto col = columns(lines.front());
     std::vector<CobaltRatio> result;
-    result.reserve(lines.size() - 1);
-    for(std::size_t i = 1; i < lines.size(); ++i){
-        const auto row = split(lines[i]);
+    result.reserve(gzipDataLineCount(path));
+    std::unordered_map<std::string, std::size_t> col;
+    bool header = true;
+    forEachGzipLine(path, [&](const std::string &line){
+        if(header){ col = columns(line); header = false; return; }
+        const auto row = split(line);
         CobaltRatio ratio;
         ratio.chromosome = row.at(col.at("chromosome"));
         ratio.position = std::stoi(row.at(col.at("position")));
@@ -117,7 +124,8 @@ std::vector<CobaltRatio> readCobaltRatios(const std::string &path, Gender gender
         ratio.tumorGcRatio = std::stod(row.at(col.at("tumorGCRatio")));
         ratio.tumorGcContent = std::stod(row.at(col.at("tumorGCContent")));
         result.push_back(std::move(ratio));
-    }
+    });
+    if(header){ throw std::runtime_error("empty Cobalt ratio input: " + path); }
     return result;
 }
 

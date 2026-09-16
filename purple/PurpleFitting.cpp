@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <limits>
 #include <thread>
 
 #include "../common/CpDump.h"
@@ -194,6 +195,75 @@ std::vector<FittedPurity> fitPurityGrid(const std::vector<const ObservedRegion *
     return result;
 }
 
+BestFit selectTumorOnlyBestFit(const std::vector<FittedPurity> &fits, const std::vector<ObservedRegion> &regions){
+    const FittedPurity &lowest = fits.front();
+    std::vector<const FittedPurity *> nearLowest;
+    for(const auto &fit : fits){
+        const double absolute = std::abs(fit.score - lowest.score);
+        const double relative = std::abs(absolute / lowest.score);
+        if(lessOrEqual(absolute, 0.0005) || lessOrEqual(relative, 0.1)){ nearLowest.push_back(&fit); }
+    }
+    FittedPurityScore score;
+    score.minPurity = score.minPloidy = score.minDiploidProportion = std::numeric_limits<double>::max();
+    for(const auto *fit : nearLowest){
+        score.minPurity = std::min(score.minPurity, fit->purity); score.maxPurity = std::max(score.maxPurity, fit->purity);
+        score.minPloidy = std::min(score.minPloidy, fit->ploidy); score.maxPloidy = std::max(score.maxPloidy, fit->ploidy);
+        score.minDiploidProportion = std::min(score.minDiploidProportion, fit->diploidProportion);
+        score.maxDiploidProportion = std::max(score.maxDiploidProportion, fit->diploidProportion);
+    }
+
+    int totalBaf = 0, highBaf = 0;
+    for(const auto &region : regions){
+        if(region.bafCount <= 0 || !greaterOrEqual(region.observedTumorRatio, 0) ||
+           region.germlineStatus != GermlineStatus::DIPLOID || lp::stripChrPrefix(region.segment.chromosome) == "Y"){ continue; }
+        totalBaf += region.bafCount;
+        if(region.observedBaf > 0.57 && region.bafCount > 1){ highBaf += region.bafCount; }
+    }
+    const bool aneuploid = totalBaf > 0 && greaterOrEqual(static_cast<double>(highBaf) / totalBaf, 0.008);
+    const bool diploidHighPurity = lowest.purity > 0.92 && lowest.ploidy > 1.8 && lowest.ploidy < 2.2;
+    const bool highlyDiploid = greaterOrEqual(score.maxDiploidProportion, 0.97);
+    const std::string method = (!aneuploid && (diploidHighPurity || highlyDiploid)) ? "NO_TUMOR" : "NORMAL";
+    if(method == "NO_TUMOR"){
+        FittedPurity converted = lowest;
+        converted.purity = 1.0;
+        converted.ploidy = 2.0;
+        for(const auto &candidate : fits){
+            if(std::abs(candidate.ploidy - 2.0) < 0.001 && std::abs(candidate.purity - 1.0) < 0.001){
+                converted.score = candidate.score;
+                converted.diploidProportion = candidate.diploidProportion;
+                converted.somaticPenalty = candidate.somaticPenalty;
+                break;
+            }
+        }
+        return BestFit{converted, score, method};
+    }
+    return BestFit{lowest, score, method};
+}
+
+std::vector<ObservedRegion> fitObservedRegions(
+        const std::vector<ObservedRegion> &regions, const FittedPurity &fit, int averageTumorDepth){
+    std::vector<ObservedRegion> result;
+    result.reserve(regions.size());
+    const double ambiguous = expectedBaf(averageTumorDepth);
+    for(const auto &source : regions){
+        if(lp::stripChrPrefix(source.segment.chromosome) == "Y"){ continue; }
+        ObservedRegion region = source;
+        region.tumorCopyNumber = adjustedCopyNumber(region.observedTumorRatio, 1, fit.purity, fit.normFactor);
+        region.tumorBaf = impliedBaf(region.tumorCopyNumber, region.observedBaf, fit.purity, fit.normFactor, ambiguous);
+        region.refNormalisedCopyNumber = adjustedCopyNumber(
+                region.observedTumorRatio, region.observedNormalRatio, fit.purity, fit.normFactor);
+        const double major = region.tumorBaf * region.tumorCopyNumber;
+        const double minor = region.tumorCopyNumber - major;
+        region.majorAlleleCopyNumberDeviation = majorDeviation(fit.purity, fit.normFactor, major);
+        region.minorAlleleCopyNumberDeviation = minorDeviation(fit.purity, fit.normFactor, minor);
+        region.eventPenalty = 1 + 0.4 * std::min(std::abs(major - 1) + std::abs(minor - 1),
+                                                1 + std::abs(major - 2) + std::abs(minor - 2));
+        region.deviationPenalty = (region.minorAlleleCopyNumberDeviation + region.majorAlleleCopyNumberDeviation) * region.observedBaf;
+        result.push_back(std::move(region));
+    }
+    return result;
+}
+
 void dumpFittingRegions(const std::vector<const ObservedRegion *> &regions){
     std::vector<lp::CpDump::Row> rows;
     rows.reserve(regions.size());
@@ -206,6 +276,32 @@ void dumpPurityGrid(const std::vector<FittedPurity> &fits){
     rows.reserve(fits.size());
     for(const auto &x : fits){ rows.push_back({"", 0, lp::CpDump::num(x.purity) + "\t" + lp::CpDump::num(x.normFactor) + "\t" + lp::CpDump::num(x.ploidy) + "\t" + lp::CpDump::num(x.score) + "\t" + lp::CpDump::num(x.diploidProportion) + "\t0"}); }
     lp::CpDump::write("CP-P5-purity-grid", "purity\tnormFactor\tploidy\tscore\tdiploidProportion\tsomaticPenalty", rows);
+}
+
+void dumpBestFit(const BestFit &best){
+    const auto &x = best.fit; const auto &s = best.score;
+    std::vector<lp::CpDump::Row> rows{{"", 0, best.method + "\t" + lp::CpDump::num(x.purity) + "\t" +
+        lp::CpDump::num(x.normFactor) + "\t" + lp::CpDump::num(x.ploidy) + "\t" + lp::CpDump::num(x.score) + "\t" +
+        lp::CpDump::num(x.diploidProportion) + "\t" + lp::CpDump::num(x.somaticPenalty) + "\t" +
+        lp::CpDump::num(s.minPurity) + "\t" + lp::CpDump::num(s.maxPurity) + "\t" + lp::CpDump::num(s.minPloidy) + "\t" +
+        lp::CpDump::num(s.maxPloidy) + "\t" + lp::CpDump::num(s.minDiploidProportion) + "\t" + lp::CpDump::num(s.maxDiploidProportion)}};
+    lp::CpDump::write("CP-P6-best-fit", "method\tpurity\tnormFactor\tploidy\tscore\tdiploidProportion\tsomaticPenalty\tminPurity\tmaxPurity\tminPloidy\tmaxPloidy\tminDiploidProportion\tmaxDiploidProportion", rows);
+}
+
+void dumpFittedRegions(const std::vector<ObservedRegion> &regions){
+    std::vector<lp::CpDump::Row> rows;
+    rows.reserve(regions.size());
+    for(const auto &x : regions){ const auto &s=x.segment; rows.push_back({s.chromosome,s.start,
+        s.chromosome+"\t"+std::to_string(s.start)+"\t"+std::to_string(s.end)+"\t"+(s.ratioSupport?"true":"false")+"\t"+
+        segmentSupportName(s.support)+"\t"+std::to_string(x.bafCount)+"\t"+lp::CpDump::num(x.observedBaf)+"\t"+
+        std::to_string(x.depthWindowCount)+"\t"+lp::CpDump::num(x.observedTumorRatio)+"\t"+lp::CpDump::num(x.observedNormalRatio)+"\t"+
+        lp::CpDump::num(x.unnormalisedObservedNormalRatio)+"\t"+germlineStatusName(x.germlineStatus)+"\t"+(s.svCluster?"true":"false")+"\t"+
+        lp::CpDump::num(x.gcContent)+"\t"+std::to_string(s.minStart)+"\t"+std::to_string(s.maxStart)+"\t"+
+        lp::CpDump::num(x.minorAlleleCopyNumberDeviation)+"\t"+lp::CpDump::num(x.majorAlleleCopyNumberDeviation)+"\t"+
+        lp::CpDump::num(x.deviationPenalty)+"\t"+lp::CpDump::num(x.eventPenalty)+"\t"+lp::CpDump::num(x.refNormalisedCopyNumber)+"\t"+
+        lp::CpDump::num(x.tumorCopyNumber)+"\t"+lp::CpDump::num(x.tumorBaf)+"\t"+lp::CpDump::num(x.fittedTumorCopyNumber)+"\t"+
+        lp::CpDump::num(x.fittedBaf)}); }
+    lp::CpDump::write("CP-P7-fitted-regions", "chromosome\tstart\tend\tratioSupport\tsupport\tbafCount\tobservedBAF\tdepthWindowCount\tobservedTumorRatio\tobservedNormalRatio\tunnormalisedObservedNormalRatio\tgermlineStatus\tsvCluster\tgcContent\tminStart\tmaxStart\tminorAlleleCopyNumberDeviation\tmajorAlleleCopyNumberDeviation\tdeviationPenalty\teventPenalty\trefNormalisedCopyNumber\ttumorCopyNumber\ttumorBAF\tfittedTumorCopyNumber\tfittedBAF", rows);
 }
 
 }

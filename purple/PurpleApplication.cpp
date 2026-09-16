@@ -41,7 +41,11 @@ int main(int argc, char **argv){
         const int threads = std::max(1, std::atoi(value(argc, argv, "-threads").c_str()));
         const auto fits = purple::fitPurityGrid(fittingRegions, inputs.averageTumorDepth, threads);
         purple::dumpPurityGrid(fits);
-        std::cerr << "PURPLE P05 fitting-grid stage complete: " << inputs.bafs.size() << " BAF, "
+        const auto bestFit = purple::selectTumorOnlyBestFit(fits, observed);
+        purple::dumpBestFit(bestFit);
+        const auto fittedRegions = purple::fitObservedRegions(observed, bestFit.fit, inputs.averageTumorDepth);
+        purple::dumpFittedRegions(fittedRegions);
+        std::cerr << "PURPLE P07 fitted-region stage complete: " << inputs.bafs.size() << " BAF, "
                   << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
                   << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
                   << observed.size() << " observed regions, " << fits.size() << " purity/ploidy candidates\n";
