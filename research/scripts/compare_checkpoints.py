@@ -72,7 +72,10 @@ def compare_one(ref_path, cpp_path, examples):
             "cpp_header": cpp_header,
         }
 
-    key_columns = pick_key(ref_header)
+    # Summary/context checkpoints contain exactly one record and intentionally
+    # have no locus key.  Use the singleton itself as the record identity so
+    # numeric fields are still compared with the frozen floating tolerance.
+    key_columns = () if len(ref_rows) <= 1 and len(cpp_rows) <= 1 else pick_key(ref_header)
     key_index = [ref_header.index(column) for column in key_columns]
 
     def index_rows(rows):
