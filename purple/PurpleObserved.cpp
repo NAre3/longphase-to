@@ -1,6 +1,7 @@
 #include "PurpleObserved.h"
 
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 
 #include "../common/CpDump.h"
@@ -110,7 +111,10 @@ std::vector<ObservedRegion> createObservedRegions(const InputData &data, const s
             while(index < values.size() && values[index]->position < segment.start){ ++index; }
             std::size_t cursor = index;
             while(cursor < values.size() && values[cursor]->position <= segment.end){
-                bafValues.push_back(std::max(values[cursor]->tumorBaf, 1.0 - values[cursor]->tumorBaf));
+                // Match AmberBAF.tumorModifiedBAF() exactly.  The mathematically
+                // equivalent max(x, 1-x) can differ by one ULP at .xxxx5 and
+                // therefore change Java's four-decimal writer output.
+                bafValues.push_back(0.5 + std::abs(values[cursor]->tumorBaf - 0.5));
                 ++cursor;
             }
             index = cursor;

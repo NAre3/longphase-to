@@ -36,8 +36,8 @@ def pick_key(header):
     for candidate in KEY_CANDIDATES:
         if all(column in header for column in candidate):
             return candidate
-    # 無可辨識的鍵時退化為整列，等同逐列嚴格比對
-    return tuple(header)
+    # 無天然 key 的 ordered checkpoint（例如 purity grid）以固定列序對齊。
+    return None
 
 
 def as_float(text):
@@ -76,12 +76,12 @@ def compare_one(ref_path, cpp_path, examples):
     # have no locus key.  Use the singleton itself as the record identity so
     # numeric fields are still compared with the frozen floating tolerance.
     key_columns = () if len(ref_rows) <= 1 and len(cpp_rows) <= 1 else pick_key(ref_header)
-    key_index = [ref_header.index(column) for column in key_columns]
+    key_index = [] if key_columns is None else [ref_header.index(column) for column in key_columns]
 
     def index_rows(rows):
         table = {}
-        for row in rows:
-            key = tuple(row[i] for i in key_index)
+        for ordinal, row in enumerate(rows):
+            key = (ordinal,) if key_columns is None else tuple(row[i] for i in key_index)
             table.setdefault(key, []).append(row)
         return table
 
@@ -105,7 +105,7 @@ def compare_one(ref_path, cpp_path, examples):
         print(f"  mismatch {key} ({reason})", file=sys.stderr)
 
     return {
-        "key_columns": list(key_columns),
+        "key_columns": ["__row_index__"] if key_columns is None else list(key_columns),
         "ref_rows": len(ref_rows),
         "cpp_rows": len(cpp_rows),
         "agreed": agreed,

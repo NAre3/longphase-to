@@ -4,7 +4,7 @@ CXXFLAGS += -ffp-contract=off -MMD -MP
 CPPFLAGS += -I..
 LDLIBS   := -lz -pthread
 
-SRC := PurpleApplication.cpp PurpleInput.cpp PurpleSegmentation.cpp PurpleObserved.cpp PurpleFitting.cpp PurpleCopyNumber.cpp PurpleSummary.cpp ../common/CpDump.cpp ../common/HumanChromosome.cpp
+SRC := PurpleApplication.cpp PurpleInput.cpp PurpleSegmentation.cpp PurpleObserved.cpp PurpleFitting.cpp PurpleCopyNumber.cpp PurpleSummary.cpp PurpleWriters.cpp ../common/CpDump.cpp ../common/HumanChromosome.cpp
 OBJ := $(SRC:.cpp=.o)
 DEP := $(OBJ:.o=.d)
 

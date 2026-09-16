@@ -149,6 +149,14 @@ struct PurpleCopyNumber {
     CopyNumberMethod method=CopyNumberMethod::UNKNOWN;
 };
 
+struct SummaryContext {
+    int deletedGenes=0;
+    double lohPercent=0;
+    double polyclonalProportion=0;
+    bool wholeGenomeDuplication=false;
+    std::string qcStatus="PASS";
+};
+
 }
 
 #endif

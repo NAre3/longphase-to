@@ -10,6 +10,7 @@
 #include "PurpleFitting.h"
 #include "PurpleCopyNumber.h"
 #include "PurpleSummary.h"
+#include "PurpleWriters.h"
 #include "../common/CpDump.h"
 
 namespace {
@@ -28,8 +29,9 @@ int main(int argc, char **argv){
         const std::string cobalt = value(argc, argv, "-cobalt");
         const std::string reference = value(argc, argv, "-ref_genome");
         const std::string ensembl = value(argc, argv, "-ensembl_data_dir");
+        const std::string output = value(argc, argv, "-output_dir");
         if(sample.empty() || amber.empty() || cobalt.empty() || reference.empty() || ensembl.empty()){
-            std::cerr << "usage: purple_port -tumor <sample> -amber <dir> -cobalt <dir> -ref_genome <fasta> -ensembl_data_dir <dir> [-cpdump_dir <dir>]\n";
+            std::cerr << "usage: purple_port -tumor <sample> -amber <dir> -cobalt <dir> -ref_genome <fasta> -ensembl_data_dir <dir> [-output_dir <dir>] [-cpdump_dir <dir>]\n";
             return 2;
         }
         lp::CpDump::setDir(value(argc, argv, "-cpdump_dir"));
@@ -50,8 +52,10 @@ int main(int argc, char **argv){
         purple::dumpFittedRegions(fittedRegions);
         const auto copyNumbers = purple::buildCopyNumbers(fittedRegions, bestFit.fit);
         purple::dumpCopyNumbers(copyNumbers);
-        purple::dumpSummaryContext(inputs, bestFit, copyNumbers, ensembl);
-        std::cerr << "PURPLE P09 summary/QC stage complete: " << inputs.bafs.size() << " BAF, "
+        const auto summary = purple::buildSummaryContext(inputs, bestFit, copyNumbers, ensembl);
+        purple::dumpSummaryContext(inputs, bestFit, copyNumbers, summary);
+        purple::writeCoreOutputs(output, inputs, fits, bestFit, fittedRegions, copyNumbers, summary);
+        std::cerr << "PURPLE P10 core-output stage complete: " << inputs.bafs.size() << " BAF, "
                   << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
                   << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
                   << observed.size() << " observed regions, " << fits.size() << " purity/ploidy candidates\n";

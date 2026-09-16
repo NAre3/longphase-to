@@ -158,22 +158,42 @@ std::string boolean(bool value){ return value ? "true" : "false"; }
 
 }
 
-void dumpSummaryContext(const InputData &inputs, const BestFit &bestFit,
+SummaryContext buildSummaryContext(const InputData &inputs, const BestFit &bestFit,
         const std::vector<PurpleCopyNumber> &copyNumbers, const std::string &ensemblDataDir){
-    const int deleted = deletedGenes(copyNumbers, ensemblDataDir);
-    std::string qcStatus = "PASS";
-    if(deleted > 280){ qcStatus = "WARN_DELETED_GENES"; }
+    SummaryContext result;
+    result.deletedGenes = deletedGenes(copyNumbers, ensemblDataDir);
+    result.lohPercent = lohPercent(copyNumbers);
+    result.polyclonalProportion = polyclonalProportion(copyNumbers);
+    result.wholeGenomeDuplication = bestFit.method == "NORMAL" && wholeGenomeDuplication(copyNumbers);
+    std::vector<std::string> statuses;
+    if(result.deletedGenes > 280){ statuses.push_back("WARN_DELETED_GENES"); }
+    if(bestFit.fit.purity < 0.2 - EPS && bestFit.method != "NO_TUMOR"){ statuses.push_back("WARN_LOW_PURITY"); }
+    if(inputs.contamination > 0.1 + EPS){ statuses.push_back("FAIL_CONTAMINATION"); }
+    if(bestFit.method == "NO_TUMOR"){ statuses.push_back("FAIL_NO_TUMOR"); }
+    if(!statuses.empty()){
+        result.qcStatus = statuses.front();
+        for(std::size_t i = 1; i < statuses.size(); ++i){ result.qcStatus += "," + statuses[i]; }
+    }
+    return result;
+}
+
+void dumpSummaryContext(const InputData &inputs, const BestFit &bestFit,
+        const std::vector<PurpleCopyNumber> &copyNumbers, const SummaryContext &summary){
+    std::string checkpointStatus = summary.qcStatus;
+    for(std::size_t position = 0; (position = checkpointStatus.find(',', position)) != std::string::npos; position += 2){
+        checkpointStatus.replace(position, 1, ", ");
+    }
     std::vector<lp::CpDump::Row> rows;
     rows.push_back({"", 0,
             std::string(genderName(inputs.amberGender)) + "\tTUMOR\tfalse\t" + bestFit.method + "\t" +
             lp::CpDump::num(bestFit.fit.purity) + "\t" + lp::CpDump::num(bestFit.fit.normFactor) + "\t" +
             lp::CpDump::num(bestFit.fit.ploidy) + "\t" + lp::CpDump::num(bestFit.fit.score) + "\t" +
             lp::CpDump::num(bestFit.fit.diploidProportion) + "\t" + lp::CpDump::num(bestFit.fit.somaticPenalty) +
-            "\t[" + qcStatus + "]\t" + std::to_string(copyNumbers.size()) + "\t0\t" + std::to_string(deleted) + "\t" +
+            "\t[" + checkpointStatus + "]\t" + std::to_string(copyNumbers.size()) + "\t0\t" + std::to_string(summary.deletedGenes) + "\t" +
             lp::CpDump::num(inputs.contamination) + "\t" + std::to_string(inputs.averageTumorDepth) + "\t" +
             genderName(inputs.cobaltGender) + "\t" + genderName(inputs.amberGender) + "\t[NONE]\t" +
-            lp::CpDump::num(lohPercent(copyNumbers)) + "\t0\t" + lp::CpDump::num(polyclonalProportion(copyNumbers)) + "\t" +
-            boolean(wholeGenomeDuplication(copyNumbers))});
+            lp::CpDump::num(summary.lohPercent) + "\t0\t" + lp::CpDump::num(summary.polyclonalProportion) + "\t" +
+            boolean(summary.wholeGenomeDuplication)});
     lp::CpDump::write("CP-P9-context-qc",
             "gender\trunMode\ttargeted\tmethod\tpurity\tnormFactor\tploidy\tscore\tdiploidProportion\tsomaticPenalty\tqcStatus\tcopyNumberSegments\tunsupportedCopyNumberSegments\tdeletedGenes\tcontamination\tamberMeanDepth\tcobaltGender\tamberGender\tgermlineAberrations\tlohPercent\ttincLevel\tpolyClonalProportion\twholeGenomeDuplication", rows);
 }
