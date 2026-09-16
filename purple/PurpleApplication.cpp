@@ -8,6 +8,7 @@
 #include "PurpleSegmentation.h"
 #include "PurpleObserved.h"
 #include "PurpleFitting.h"
+#include "PurpleCopyNumber.h"
 #include "../common/CpDump.h"
 
 namespace {
@@ -45,7 +46,9 @@ int main(int argc, char **argv){
         purple::dumpBestFit(bestFit);
         const auto fittedRegions = purple::fitObservedRegions(observed, bestFit.fit, inputs.averageTumorDepth);
         purple::dumpFittedRegions(fittedRegions);
-        std::cerr << "PURPLE P07 fitted-region stage complete: " << inputs.bafs.size() << " BAF, "
+        const auto copyNumbers = purple::buildCopyNumbers(fittedRegions, bestFit.fit);
+        purple::dumpCopyNumbers(copyNumbers);
+        std::cerr << "PURPLE P08 consolidated-copy-number stage complete: " << inputs.bafs.size() << " BAF, "
                   << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
                   << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
                   << observed.size() << " observed regions, " << fits.size() << " purity/ploidy candidates\n";

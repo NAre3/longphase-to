@@ -2,6 +2,7 @@
 *.exe
 *.o
 *.obj
+*.d
 
 # Static and dynamic libraries
 *.so

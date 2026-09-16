@@ -134,6 +134,21 @@ struct BestFit {
     std::string method;
 };
 
+enum class CopyNumberMethod { UNKNOWN, BAF_WEIGHTED, LONG_ARM };
+inline const char *copyNumberMethodName(CopyNumberMethod method){
+    if(method == CopyNumberMethod::BAF_WEIGHTED){ return "BAF_WEIGHTED"; }
+    if(method == CopyNumberMethod::LONG_ARM){ return "LONG_ARM"; }
+    return "UNKNOWN";
+}
+
+struct PurpleCopyNumber {
+    std::string chromosome;
+    int start=0,end=0,bafCount=0,depthWindowCount=0,minStart=0,maxStart=0;
+    double averageActualBaf=0,averageObservedBaf=0,averageTumorCopyNumber=0,gcContent=0;
+    SegmentSupport segmentStartSupport=SegmentSupport::NONE,segmentEndSupport=SegmentSupport::NONE;
+    CopyNumberMethod method=CopyNumberMethod::UNKNOWN;
+};
+
 }
 
 #endif
