@@ -25,10 +25,13 @@ int chromosomeRank(const std::string &chromosome){
     try { return std::stoi(value); } catch(...) { return 1000; }
 }
 
-std::unordered_map<std::string, int> readLengths(const std::string &referenceFasta){
+}
+
+// **只讀 .fai 的前兩欄（名稱、長度），從不讀取 fasta 的序列本身。**
+ChromosomeLengths readChromosomeLengths(const std::string &referenceFasta){
     std::ifstream input(referenceFasta + ".fai");
     if(!input){ throw std::runtime_error("unable to open reference index: " + referenceFasta + ".fai"); }
-    std::unordered_map<std::string, int> result;
+    ChromosomeLengths result;
     std::string chromosome;
     int length = 0;
     while(input >> chromosome >> length){
@@ -38,6 +41,8 @@ std::unordered_map<std::string, int> readLengths(const std::string &referenceFas
     }
     return result;
 }
+
+namespace {
 
 int centromere(const std::string &chromosome){
     static const std::unordered_map<std::string, int> values = {
@@ -166,8 +171,7 @@ std::vector<SupportSegment> segmentsForChromosome(const std::string &chromosome,
 
 }
 
-std::vector<SupportSegment> createSupportSegments(const InputData &data, const std::string &referenceFasta){
-    const auto lengths = readLengths(referenceFasta);
+std::vector<SupportSegment> createSupportSegments(const InputData &data, const ChromosomeLengths &lengths){
     std::unordered_map<std::string, std::vector<PcfPosition>> amberByChr, cobaltByChr;
     std::unordered_map<std::string, std::vector<const CobaltRatio *>> ratiosByChr;
     for(const auto &position : data.amberPcf){ amberByChr[position.chromosome].push_back(position); }

@@ -18,12 +18,13 @@ InputData loadInputs(const PipelineConfig &cfg)
     return loadTumorOnlyInputs(cfg.sampleId, cfg.amberDir, cfg.cobaltDir);
 }
 
-void runFromInputs(const PipelineConfig &cfg, const InputData &inputs)
+void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
+        const ChromosomeLengths &lengths)
 {
     // 這個函式的內容原本是 PurpleApplication.cpp 的 main() 主體（34b8d97）。
     // 抽出時只改了取值來源（argv -> cfg），沒有改動任何呼叫順序或引數。
     dumpInputCheckpoint(inputs);
-    const auto segments = createSupportSegments(inputs, cfg.refGenome);
+    const auto segments = createSupportSegments(inputs, lengths);
     dumpSupportSegments(segments);
     const auto observed = createObservedRegions(inputs, segments);
     dumpObservedRegions(observed);
@@ -49,7 +50,7 @@ void runFromInputs(const PipelineConfig &cfg, const InputData &inputs)
 
 void run(const PipelineConfig &cfg)
 {
-    runFromInputs(cfg, loadInputs(cfg));
+    runFromInputs(cfg, loadInputs(cfg), readChromosomeLengths(cfg.refGenome));
 }
 
 }

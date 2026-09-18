@@ -4,6 +4,7 @@
 #include <string>
 
 #include "PurpleTypes.h"
+#include "PurpleSegmentation.h"
 
 namespace purple {
 
@@ -14,6 +15,8 @@ struct PipelineConfig
     std::string sampleId;
     std::string amberDir;
     std::string cobaltDir;
+    // purple_port 專用：染色體長度的 .fai 來源。整合版留空——長度改由
+    // runFromInputs 的參數提供（來自 BAM header @SQ）。
     std::string refGenome;
     std::string ensemblDataDir;
     std::string outputDir;
@@ -42,9 +45,13 @@ struct PipelineConfig
 
 InputData loadInputs(const PipelineConfig &cfg);
 
-void runFromInputs(const PipelineConfig &cfg, const InputData &inputs);
+// 染色體長度由呼叫端提供，因為兩條路徑的來源不同：
+//   purple_port  -ref_genome 的 .fai
+//   整合版        BAM header @SQ（longphase-to 已開著 BAM，不再要 -ref_genome）
+void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
+        const ChromosomeLengths &lengths);
 
-// loadInputs + runFromInputs 的便利包裝。
+// purple_port 的路徑：讀 .fai 取長度，載入五個 stage 檔案，然後跑完。
 void run(const PipelineConfig &cfg);
 
 }
