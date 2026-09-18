@@ -4,7 +4,9 @@
 #include <string>
 #include <vector>
 
+#include "AmberOutput.h"
 #include "BamEvidenceReader.h"
+#include "Segmentation.h"
 #include "PositionEvidence.h"
 
 namespace amber {
@@ -24,6 +26,11 @@ struct PipelineConfig
     bool writeVersion = false;
     int minBaseQuality = DEFAULT_MIN_BASE_QUALITY;
     int minMappingQuality = DEFAULT_MIN_MAPPING_QUALITY;
+    // 三個 stage 輸出是否落檔。**預設 true**：既有呼叫端（amber_port、
+    // longphase-to 的 EXP-I02 整合）行為完全不變。
+    // 設 false 只在下游改以記憶體接手結果時使用（PURPLE 整合），
+    // 此時 postscan 的回傳值即為原本要寫進檔案的同一份資料。
+    bool writeStageOutputs = true;
 };
 
 // prescan 的產出。tasks 內的 PositionEvidence* 指向 evidence 的元素，
@@ -48,7 +55,19 @@ struct PrescanResult
 // 這是「凍結候選的行為未因整合而改變」這句話的依據。
 PrescanResult prescan(const PipelineConfig &cfg);
 
-void postscan(const PipelineConfig &cfg, const std::vector<PositionEvidence> &evidence,
+// postscan 的產出。這三項就是三個 stage 輸出的記憶體來源：
+//   bafs          -> <sample>.amber.baf.tsv.gz
+//   segmentation  -> <sample>.amber.baf.pcf
+//   contamination -> <sample>.amber.qc 的 Contamination 欄
+// 回傳它們讓下游（PURPLE 整合）能直接取用，不必經過檔案來回。
+struct PostscanResult
+{
+    std::vector<AmberBAF> bafs;
+    SegmentationResult segmentation;
+    double contamination = 0.0;
+};
+
+PostscanResult postscan(const PipelineConfig &cfg, const std::vector<PositionEvidence> &evidence,
         const BamScanStats &stats);
 
 }

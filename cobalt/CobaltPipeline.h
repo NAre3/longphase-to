@@ -5,7 +5,9 @@
 #include <vector>
 
 #include "../common/ChrBaseRegion.h"
+#include "CobaltOutput.h"
 #include "CobaltWindow.h"
+#include "Segmentation.h"
 #include "GcProfile.h"
 #include "ReadDepth.h"
 #include "Regions.h"
@@ -27,6 +29,10 @@ struct PipelineConfig
     int minMappingQuality = 10;      // cobalt_port 的 -min_quality 預設
     double pcfGamma = 100.0;         // -pcf_gamma 預設；AMBER/COBALT 兩邊皆硬編碼 100
     bool includeDuplicates = false;
+    // 三個 stage 輸出是否落檔。**預設 true**：既有呼叫端（cobalt_port、
+    // longphase-to 的 EXP-I03 整合）行為完全不變。
+    // 設 false 只在下游改以記憶體接手結果時使用（PURPLE 整合）。
+    bool writeStageOutputs = true;
 };
 
 // prescan 的產出（CP-C1 → CP-C5）。postscan 需要其中四項：
@@ -53,7 +59,17 @@ struct PrescanResult
 // 這是「凍結候選（b71e68e）的行為未因整合而改變」這句話的依據。
 PrescanResult prescan(const PipelineConfig &cfg);
 
-void postscan(const PipelineConfig &cfg, const PrescanResult &pre,
+// postscan 的產出。這兩項是 PURPLE 需要的兩個 stage 輸出的記憶體來源：
+//   ratios        -> <sample>.cobalt.ratio.tsv.gz
+//   segmentation  -> <sample>.cobalt.ratio.pcf
+// （gc.median 只有 COBALT 自己的診斷用途，PURPLE 不讀，故不回傳。）
+struct PostscanResult
+{
+    std::vector<CobaltRatio> ratios;
+    SegmentationResult segmentation;
+};
+
+PostscanResult postscan(const PipelineConfig &cfg, const PrescanResult &pre,
         const std::vector<DepthReading> &depths);
 
 }

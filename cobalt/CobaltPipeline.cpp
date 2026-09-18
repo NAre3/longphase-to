@@ -201,7 +201,7 @@ PrescanResult prescan(const PipelineConfig &cfg)
     return result;
 }
 
-void postscan(const PipelineConfig &cfg, const PrescanResult &pre,
+PostscanResult postscan(const PipelineConfig &cfg, const PrescanResult &pre,
         const std::vector<DepthReading> &depths)
 {
     const std::vector<cobalt::ChromosomeSpec> &chromosomes = pre.chromosomes;
@@ -381,7 +381,7 @@ void postscan(const PipelineConfig &cfg, const PrescanResult &pre,
         CpDump::write("CP-C11-summary", "field\tvalue", scalars);
     }
 
-    const std::vector<cobalt::CobaltRatio> collated = cobalt::collateResults(ratios);
+    std::vector<cobalt::CobaltRatio> collated = cobalt::collateResults(ratios);
 
     if(CpDump::enabled())
     {
@@ -401,7 +401,9 @@ void postscan(const PipelineConfig &cfg, const PrescanResult &pre,
     }
 
     // ---- stage 輸出 ----
-    {
+    // 原本無條件寫出；加上 outputDir 與 writeStageOutputs 兩個條件後，
+    // 既有呼叫端（outputDir 預設 "."、writeStageOutputs 預設 true）行為不變。
+    if(!cfg.outputDir.empty() && cfg.writeStageOutputs){
         const std::string &outDir = cfg.outputDir;
         const std::string &tumorId = cfg.sampleId;
         cobalt::writeCobaltRatioFile(outDir + "/" + tumorId + ".cobalt.ratio.tsv.gz", collated);
@@ -413,7 +415,7 @@ void postscan(const PipelineConfig &cfg, const PrescanResult &pre,
     // C++ 端的分段是**單執行緒**（Java 的 PerArmSegmenter.getSegmentation 吃 executor，
     // C++ 未平行化）。依票面，本票的執行緒掃描結果僅涵蓋單執行緒分段，須在 manifest 明寫。
     const double pcfGamma = cfg.pcfGamma;
-    const cobalt::SegmentationResult seg = cobalt::segmentRatios(collated, pcfGamma);
+    cobalt::SegmentationResult seg = cobalt::segmentRatios(collated, pcfGamma);
 
     auto armLabel = [](const cobalt::ArmData &a){
         return "ChrArm[chromosome=" + a.chromosomeShort + ", arm=" + std::string(1, a.arm) + "]";
@@ -513,7 +515,7 @@ void postscan(const PipelineConfig &cfg, const PrescanResult &pre,
         CpDump::write("CP-C14", "chrArm\tidx\tchromosome\tstart\tend\tmeanRatio", rows);
     }
 
-    {
+    if(!cfg.outputDir.empty() && cfg.writeStageOutputs){
         const std::string &outDir = cfg.outputDir;
         const std::string &tumorId = cfg.sampleId;
         cobalt::writeSegmentsFile(outDir + "/" + tumorId + ".cobalt.ratio.pcf", seg);
@@ -532,6 +534,11 @@ void postscan(const PipelineConfig &cfg, const PrescanResult &pre,
                  chromosomes.size(), partitions.size(),
                  [&]{ std::size_t n = 0; for(const auto &v : gcData.byChromosome){ n += v.size(); } return n; }(),
                  diploid.totalEntries());
+
+    PostscanResult result;
+    result.ratios = std::move(collated);
+    result.segmentation = std::move(seg);
+    return result;
 }
 
 }

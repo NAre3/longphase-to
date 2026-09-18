@@ -220,7 +220,7 @@ PrescanResult prescan(const PipelineConfig &cfg)
     return result;
 }
 
-void postscan(const PipelineConfig &cfg, const std::vector<PositionEvidence> &evidence,
+PostscanResult postscan(const PipelineConfig &cfg, const std::vector<PositionEvidence> &evidence,
         const BamScanStats &stats)
 {
     const int threads = cfg.threads;
@@ -537,7 +537,7 @@ void postscan(const PipelineConfig &cfg, const std::vector<PositionEvidence> &ev
     //
     // 對應 ResultsWriter.persistBAF / persistQC（ResultsWriter.java:38-61）。
     // persistBAF 內另有 PCF 分段（同檔 43-51），屬 EXP-010 的範圍，此處不實作。
-    if(!outputDir.empty()){
+    if(!outputDir.empty() && cfg.writeStageOutputs){
         if(sampleId.empty()){
             throw std::runtime_error("-output_dir 需要同時給定 -tumor");
         }
@@ -559,7 +559,7 @@ void postscan(const PipelineConfig &cfg, const std::vector<PositionEvidence> &ev
     // BAFSegmenter.writeSegments → PerArmSegmenter。gamma 硬編碼 100.0，AMBER 4.3 無 CLI 可調。
     // 注意 tumor-only 也會做分段：runTumorOnly 本身沒呼叫，但它呼叫的 persistBAF 內有。
 
-    const amber::SegmentationResult segmentation = amber::segmentBafs(amberBAFList);
+    amber::SegmentationResult segmentation = amber::segmentBafs(amberBAFList);
 
     std::size_t segmentCount = 0;
     for(const amber::ArmSegments &arm : segmentation.arms){
@@ -571,11 +571,17 @@ void postscan(const PipelineConfig &cfg, const std::vector<PositionEvidence> &ev
 
     amber::writeSegmentationCheckpoints(segmentation);
 
-    if(!outputDir.empty() && !sampleId.empty()){
+    if(!outputDir.empty() && !sampleId.empty() && cfg.writeStageOutputs){
         const std::string pcfPath = outputDir + "/" + sampleId + ".amber.baf.pcf";
         amber::writeSegmentsFile(pcfPath, segmentation);
         std::fprintf(stderr, "wrote %s\n", pcfPath.c_str());
     }
+
+    PostscanResult result;
+    result.bafs = std::move(amberBAFList);
+    result.segmentation = std::move(segmentation);
+    result.contamination = noiseFloorResult.contamination;
+    return result;
 }
 
 }
