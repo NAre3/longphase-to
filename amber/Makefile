@@ -14,21 +14,27 @@ CPPFLAGS += -I$(HTSLIB) -I..
 LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread -lcurl -lcrypto
 
 # 共用核心在 ../common（namespace lp），AMBER 與 COBALT 兩邊共用同一份物件檔來源。
-COMMON_SRC := ../common/CpDump.cpp ../common/HumanChromosome.cpp ../common/SamRecordView.cpp \
-              ../common/Segmentation.cpp
+# 物件檔放進本 target 自己的 build/（理由同 purple/Makefile 的說明）。
+OBJDIR := build
+COMMON_SRC := CpDump.cpp HumanChromosome.cpp SamRecordView.cpp Segmentation.cpp
 
 SRC := AmberApplication.cpp AmberPipeline.cpp SharedScanSink.cpp \
        AmberOutput.cpp AmberSitesFile.cpp BamEvidenceReader.cpp \
        TumorFilters.cpp NoiseFloor.cpp CommonsMath.cpp Segmentation.cpp
-OBJ := $(SRC:.cpp=.o) $(COMMON_SRC:.cpp=.o)
+OBJ := $(SRC:%.cpp=$(OBJDIR)/%.o) $(COMMON_SRC:%.cpp=$(OBJDIR)/common/%.o)
 
 amber_port: $(OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) $(LDLIBS)
 
-%.o: %.cpp
+$(OBJDIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJDIR)/common/%.o: ../common/%.cpp
+	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJ) amber_port
+	rm -rf $(OBJDIR) amber_port
 
 .PHONY: clean

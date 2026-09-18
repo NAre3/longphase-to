@@ -14,22 +14,28 @@ CPPFLAGS += -I$(HTSLIB) -I..
 LDLIBS   := $(HTSLIB)/libhts.a -lz -lm -lbz2 -llzma -ldeflate -lpthread -lcurl -lcrypto
 
 # 共用核心在 ../common（namespace lp），AMBER 與 COBALT 兩邊共用同一份物件檔來源。
-COMMON_SRC := ../common/CpDump.cpp ../common/HumanChromosome.cpp \
-              ../common/Segmentation.cpp
+# 物件檔放進本 target 自己的 build/（理由同 purple/Makefile 的說明）。
+OBJDIR := build
+COMMON_SRC := CpDump.cpp HumanChromosome.cpp Segmentation.cpp
 
 SRC := BamRatio.cpp CobaltApplication.cpp CobaltPipeline.cpp CobaltOutput.cpp CobaltWindow.cpp Consolidation.cpp \
        GcBuckets.cpp GcProfile.cpp Percentile.cpp Segmentation.cpp \
        ReadDepth.cpp Regions.cpp WindowStatuses.cpp
 
-OBJ := $(SRC:.cpp=.o) $(COMMON_SRC:.cpp=.o)
+OBJ := $(SRC:%.cpp=$(OBJDIR)/%.o) $(COMMON_SRC:%.cpp=$(OBJDIR)/common/%.o)
 
 cobalt_port: $(OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) $(LDLIBS)
 
-%.o: %.cpp
+$(OBJDIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJDIR)/common/%.o: ../common/%.cpp
+	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJ) cobalt_port
+	rm -rf $(OBJDIR) cobalt_port
 
 .PHONY: clean
