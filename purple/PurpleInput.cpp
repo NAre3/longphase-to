@@ -129,29 +129,21 @@ std::vector<CobaltRatio> readCobaltRatios(const std::string &path, Gender gender
     return result;
 }
 
-std::vector<PcfPosition> readPcfPositions(const std::string &path, PcfSource source){
-    std::ifstream input(path);
-    if(!input){ throw std::runtime_error("unable to open PCF input: " + path); }
-    std::string line;
-    if(!std::getline(input, line)){ throw std::runtime_error("empty PCF input: " + path); }
-    const bool oldFormat = line.rfind("sampleID", 0) == 0;
+std::vector<PcfPosition> buildPcfPositions(const std::vector<PcfInterval> &intervals, PcfSource source){
     std::unordered_map<std::string, std::vector<PcfPosition>> byChromosome;
     std::vector<std::string> chromosomeOrder;
     std::string currentChromosome;
     int minPosition = 1;
-    while(std::getline(input, line)){
-        const auto row = split(line);
-        const std::string chromosome = row.at(oldFormat ? 1 : 0);
+    for(const PcfInterval &interval : intervals){
+        const std::string &chromosome = interval.chromosome;
         if(!lp::isHumanChromosome(chromosome)){ continue; }
         if(chromosome != currentChromosome){
             currentChromosome = chromosome;
             minPosition = 1;
             chromosomeOrder.push_back(chromosome);
         }
-        const int rawStart = std::stoi(row.at(oldFormat ? 3 : 1));
-        const int rawEnd = std::stoi(row.at(oldFormat ? 4 : 2));
-        const int start = oldFormat ? ((rawStart - 1) / 1000) * 1000 + 1 : rawStart;
-        const int end = oldFormat ? ((rawEnd - 1) / 1000) * 1000 + 1001 : rawEnd + 1;
+        const int start = interval.start;
+        const int end = interval.end;
         auto &positions = byChromosome[chromosome];
         if(!positions.empty()){ positions.back().maxPosition = start; }
         positions.push_back(PcfPosition{source, chromosome, start, minPosition, start});
@@ -181,6 +173,28 @@ std::vector<PcfPosition> readPcfPositions(const std::string &path, PcfSource sou
         result.insert(result.end(), positions.begin(), positions.end());
     }
     return result;
+}
+
+std::vector<PcfPosition> readPcfPositions(const std::string &path, PcfSource source){
+    std::ifstream input(path);
+    if(!input){ throw std::runtime_error("unable to open PCF input: " + path); }
+    std::string line;
+    if(!std::getline(input, line)){ throw std::runtime_error("empty PCF input: " + path); }
+    const bool oldFormat = line.rfind("sampleID", 0) == 0;
+
+    // 兩種格式的欄位位置與座標換算都在這裡收斂成 PcfInterval，
+    // 之後的配對/排序/夾擠邏輯由 buildPcfPositions 與記憶體交接路徑共用。
+    std::vector<PcfInterval> intervals;
+    while(std::getline(input, line)){
+        const auto row = split(line);
+        const int rawStart = std::stoi(row.at(oldFormat ? 3 : 1));
+        const int rawEnd = std::stoi(row.at(oldFormat ? 4 : 2));
+        intervals.push_back(PcfInterval{
+                row.at(oldFormat ? 1 : 0),
+                oldFormat ? ((rawStart - 1) / 1000) * 1000 + 1 : rawStart,
+                oldFormat ? ((rawEnd - 1) / 1000) * 1000 + 1001 : rawEnd + 1});
+    }
+    return buildPcfPositions(intervals, source);
 }
 
 double readAmberContamination(const std::string &path){
