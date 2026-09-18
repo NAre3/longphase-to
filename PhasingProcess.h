@@ -74,8 +74,27 @@ struct PhasingParameters
     std::string cobaltSampleId = "";
     int cobaltMinMapQuality = 10;   // cobalt::DEFAULT -min_quality
 
+    // PURPLE 整合。PURPLE **不讀 BAM**，消費的是 AMBER/COBALT 的結果，
+    // 因此它接在兩者的 postscan 之後，不參與共用掃描。
+    //
+    // 刻意**沒有** ref_genome 欄位：purple_port 用 -ref_genome 只為了讀 .fai 取
+    // 染色體長度，而此處長度直接取自 cobaltPrescan.chromosomes（來源是 BAM
+    // header @SQ）。實測 HCC1937_t50_n00 的 header 195 條 contig 長度與 .fai
+    // 逐一相同，故不必再要求使用者給一次參考基因體。
+    //
+    // 中間檔案預設不落地：AMBER/COBALT 的 stage 輸出改以記憶體交給 PURPLE，
+    // 只有在使用者明確給了 amberOutputDir / cobaltOutputDir 時才會寫出。
+    std::string purpleEnsemblDataDir = "";
+    std::string purpleOutputDir = "";
+    std::string purpleSampleId = "";
+    std::string purpleCpDumpDir = "";
+
     bool amberEnabled() const { return !amberLoci.empty(); }
     bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }
+    // PURPLE 需要 AMBER 與 COBALT 兩邊的結果，缺一不可。
+    bool purpleEnabled() const {
+        return !purpleEnsemblDataDir.empty() && amberEnabled() && cobaltEnabled();
+    }
 };
 
 class PhasingProcess

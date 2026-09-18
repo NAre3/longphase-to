@@ -7,6 +7,8 @@
 
 #include "amber/AmberPipeline.h"
 #include "amber/SharedScanSink.h"
+#include "purple/PurplePipeline.h"
+#include "purple/PurpleInputAdapter.h"
 #include "cobalt/CobaltConstants.h"
 #include "cobalt/CobaltPipeline.h"
 #include "cobalt/ReadDepth.h"
@@ -129,6 +131,8 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     // 之後每條染色體各自建一個 ContigSink，由共用走訪把 read 路由進去。
     amber::PipelineConfig amberCfg;
     amber::PrescanResult amberPrescan;
+    // postscan 的結果要活過下面的 if 區塊：PURPLE 直接吃它，不經過檔案。
+    amber::PostscanResult amberResult;
     std::vector<amber::ContigSink *> amberSinks(chrName.size(), nullptr);
     std::vector<std::string> scanContigs = chrName;
 
@@ -137,6 +141,9 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         amberCfg.bedPath = params.amberExcludedBed;
         amberCfg.tumorBam = params.bamFile.front();
         amberCfg.outputDir = params.amberOutputDir;
+        // PURPLE 啟用時中間檔案預設不落地——PURPLE 改吃記憶體結果，
+        // 使用者要檔案就明確給 output dir。PURPLE 未啟用時維持既有行為。
+        amberCfg.writeStageOutputs = !params.amberOutputDir.empty() || !params.purpleEnabled();
         amberCfg.sampleId = params.amberSampleId;
         amberCfg.minBaseQuality = params.amberMinBaseQuality;
         amberCfg.minMappingQuality = params.amberMinMapQuality;
@@ -184,6 +191,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     // 陣列，故不同執行緒寫不同染色體的槽互不干擾（design.md E1）。
     cobalt::PipelineConfig cobaltCfg;
     cobalt::PrescanResult cobaltPrescan;
+    cobalt::PostscanResult cobaltResult;
     std::unique_ptr<cobalt::ReadDepthAccumulator> cobaltAccumulator;
     std::vector<cobalt::DepthSink *> cobaltSinks;
     std::map<std::string, int> cobaltContigLength;
@@ -194,6 +202,9 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         cobaltCfg.diploidBed = params.cobaltDiploidBed;
         cobaltCfg.excludedPath = params.cobaltExcludedRegions;
         cobaltCfg.outputDir = params.cobaltOutputDir.empty() ? "." : params.cobaltOutputDir;
+        // 同上。COBALT 的 outputDir 預設為 "."（會寫進工作目錄），
+        // 因此這裡必須靠 writeStageOutputs 才關得掉。
+        cobaltCfg.writeStageOutputs = !params.cobaltOutputDir.empty() || !params.purpleEnabled();
         cobaltCfg.sampleId = params.cobaltSampleId.empty() ? "tumor" : params.cobaltSampleId;
         cobaltCfg.minMappingQuality = params.cobaltMinMapQuality;
         cobaltCfg.threads = params.numThreads;
@@ -356,7 +367,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
 
         begin = time(NULL);
         std::cerr<< "AMBER postscan ... ";
-        amber::postscan(amberCfg, amberPrescan.evidence, amberStats);
+        amberResult = amber::postscan(amberCfg, amberPrescan.evidence, amberStats);
         std::cerr<< difftime(time(NULL), begin) << "s\n";
     }
 
@@ -384,7 +395,44 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
 
         begin = time(NULL);
         std::cerr<< "COBALT postscan ... ";
-        cobalt::postscan(cobaltCfg, cobaltPrescan, depths);
+        cobaltResult = cobalt::postscan(cobaltCfg, cobaltPrescan, depths);
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
+    }
+
+    // ---- PURPLE（記憶體接手）----
+    //
+    // PURPLE 不讀 BAM，所以不參與共用掃描；它接在 AMBER 與 COBALT 的 postscan
+    // 之後，直接吃兩者的記憶體結果。buildInputsFromMemory 會重現寫檔端的四位
+    // 小數捨入，因此這條路徑與「寫出五個 stage 檔案再讀回」等價——理由見
+    // purple/PurpleInputAdapter.h。
+    //
+    // 染色體長度取自 cobaltPrescan.chromosomes，其來源是 BAM header @SQ
+    // （cobalt/CobaltPipeline.cpp 的 loadChromosomes），因此不需要 -ref_genome。
+    if(params.purpleEnabled()){
+        std::cerr << std::endl;
+        begin = time(NULL);
+        std::cerr<< "PURPLE ... ";
+
+        purple::ChromosomeLengths lengths;
+        for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
+            lengths[c.name] = c.length;
+        }
+
+        purple::PipelineConfig purpleCfg;
+        purpleCfg.sampleId = params.purpleSampleId.empty() ? params.amberSampleId : params.purpleSampleId;
+        purpleCfg.ensemblDataDir = params.purpleEnsemblDataDir;
+        purpleCfg.outputDir = params.purpleOutputDir;
+        purpleCfg.threads = params.numThreads;
+        // refGenome 刻意留空：長度已由 lengths 提供。
+
+        lp::CpDump::setDir(params.purpleCpDumpDir);
+        const purple::InputData purpleInputs = purple::buildInputsFromMemory(
+                purpleCfg.sampleId,
+                amberResult.bafs, amberResult.segmentation,
+                cobaltResult.ratios, cobaltResult.segmentation,
+                amberResult.contamination);
+        purple::runFromInputs(purpleCfg, purpleInputs, lengths);
+
         std::cerr<< difftime(time(NULL), begin) << "s\n";
     }
 

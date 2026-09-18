@@ -63,7 +63,10 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --cobalt-diploid-bed=NAME              tumor-only diploid bed.gz. optional.\n"
 "   --cobalt-output-dir=DIR                write <sample>.cobalt.ratio.tsv.gz, .cobalt.ratio.pcf and .cobalt.gc.median.tsv.\n"
 "   --cobalt-sample=NAME                   sample id used for the COBALT output file names.\n"
-"   --cobalt-min-map-quality=Num           COBALT mapping quality threshold. default:10\n\n"
+"   --cobalt-min-map-quality=Num           COBALT mapping quality threshold. default:10\n"
+"   --ensembl_data_dir=DIR                 Ensembl data cache. enables PURPLE; requires the AMBER and COBALT options too.\n"
+"   --purple-output-dir=DIR                write the six PURPLE core outputs.\n"
+"   --purple-sample=NAME                   sample id used for the PURPLE output file names. default: --amber-sample\n\n"
 
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
@@ -90,6 +93,7 @@ enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, V
        AMBER_LOCI, AMBER_EXCLUDED_BED, AMBER_OUTPUT_DIR, AMBER_SAMPLE,
        AMBER_MIN_BASE_QUALITY, AMBER_MIN_MAP_QUALITY, AMBER_CPDUMP_DIR,
        COBALT_GC_PROFILE, COBALT_DIPLOID_BED, COBALT_EXCLUDED_REGIONS,
+       PURPLE_ENSEMBL_DATA_DIR, PURPLE_OUTPUT_DIR, PURPLE_SAMPLE,
        COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY};
 
 static const struct option longopts[] = {
@@ -145,6 +149,9 @@ static const struct option longopts[] = {
     { "cobalt-gc-profile",    required_argument,  NULL, COBALT_GC_PROFILE },
     { "cobalt-diploid-bed",   required_argument,  NULL, COBALT_DIPLOID_BED },
     { "cobalt-excluded-regions", required_argument, NULL, COBALT_EXCLUDED_REGIONS },
+    { "ensembl_data_dir",     required_argument,  NULL, PURPLE_ENSEMBL_DATA_DIR },
+    { "purple-output-dir",    required_argument,  NULL, PURPLE_OUTPUT_DIR },
+    { "purple-sample",        required_argument,  NULL, PURPLE_SAMPLE },
     { "cobalt-output-dir",    required_argument,  NULL, COBALT_OUTPUT_DIR },
     { "cobalt-sample",        required_argument,  NULL, COBALT_SAMPLE },
     { "cobalt-min-map-quality", required_argument, NULL, COBALT_MIN_MAP_QUALITY },
@@ -281,6 +288,12 @@ namespace opt
     static std::string cobaltSample="";
     static int cobaltMinMapQuality=10;
 
+    // ---- PURPLE 整合 ----
+    // 刻意沒有 ref_genome：染色體長度取自 BAM header @SQ，見 PhasingProcess.h 的說明。
+    static std::string purpleEnsemblDataDir="";
+    static std::string purpleOutputDir="";
+    static std::string purpleSample="";
+
     static bool outputLOH = false;
     static bool outputSGE = false;
     static bool outputLGE = false;
@@ -392,6 +405,9 @@ void PhasingOptions(int argc, char** argv)
         case COBALT_GC_PROFILE: arg >> opt::cobaltGcProfile; break;
         case COBALT_DIPLOID_BED: arg >> opt::cobaltDiploidBed; break;
         case COBALT_EXCLUDED_REGIONS: arg >> opt::cobaltExcludedRegions; break;
+        case PURPLE_ENSEMBL_DATA_DIR: arg >> opt::purpleEnsemblDataDir; break;
+        case PURPLE_OUTPUT_DIR: arg >> opt::purpleOutputDir; break;
+        case PURPLE_SAMPLE: arg >> opt::purpleSample; break;
         case COBALT_OUTPUT_DIR: arg >> opt::cobaltOutputDir; break;
         case COBALT_SAMPLE: arg >> opt::cobaltSample; break;
         case COBALT_MIN_MAP_QUALITY: arg >> opt::cobaltMinMapQuality; break;
@@ -452,6 +468,23 @@ void PhasingOptions(int argc, char** argv)
         std::cerr << SUBPROGRAM
                   << ": --amber-loci and --amber-excluded-bed must be given together.\n";
         die = true;
+    }
+
+    // PURPLE 消費 AMBER 與 COBALT 的結果，缺任一邊都跑不了。
+    // 與上面同一個理由：寧可擋下來，也不要靜默不啟用讓使用者以為跑了。
+    if(!opt::purpleEnsemblDataDir.empty()){
+        if(opt::amberLoci.empty() || opt::cobaltGcProfile.empty()){
+            std::cerr << SUBPROGRAM
+                      << ": --ensembl_data_dir enables PURPLE, which needs both the AMBER"
+                      << " (--amber-loci) and COBALT (--cobalt-gc-profile) options.\n";
+            die = true;
+        }
+        std::ifstream openDir((opt::purpleEnsemblDataDir + "/ensembl_gene_data.csv").c_str());
+        if(!openDir.is_open()){
+            std::cerr << "Ensembl data cache " << opt::purpleEnsemblDataDir
+                      << " does not contain ensembl_gene_data.csv.\n\n";
+            die = true;
+        }
     }
 
     if(!opt::amberLoci.empty()){
@@ -738,6 +771,10 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.cobaltExcludedRegions = opt::cobaltExcludedRegions;
     ecParams.cobaltOutputDir = opt::cobaltOutputDir;
     ecParams.cobaltSampleId = opt::cobaltSample;
+
+    ecParams.purpleEnsemblDataDir = opt::purpleEnsemblDataDir;
+    ecParams.purpleOutputDir = opt::purpleOutputDir;
+    ecParams.purpleSampleId = opt::purpleSample;
     ecParams.cobaltMinMapQuality = opt::cobaltMinMapQuality;
 
     PhasingProcess processor(ecParams);

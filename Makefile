@@ -29,6 +29,7 @@ AMBER_OBJ = $(OBJDIR)/amber/AmberPipeline.o $(OBJDIR)/amber/SharedScanSink.o \
             $(OBJDIR)/amber/NoiseFloor.o $(OBJDIR)/amber/CommonsMath.o \
             $(OBJDIR)/amber/Segmentation.o \
             $(COBALT_OBJ) \
+            $(PURPLE_OBJ) \
             $(OBJDIR)/common/CpDump.o $(OBJDIR)/common/HumanChromosome.o \
             $(OBJDIR)/common/SamRecordView.o $(OBJDIR)/common/Segmentation.o
 
@@ -42,6 +43,19 @@ COBALT_OBJ = $(OBJDIR)/cobalt/CobaltPipeline.o $(OBJDIR)/cobalt/BamRatio.o \
              $(OBJDIR)/cobalt/GcProfile.o $(OBJDIR)/cobalt/Percentile.o \
              $(OBJDIR)/cobalt/Segmentation.o $(OBJDIR)/cobalt/ReadDepth.o \
              $(OBJDIR)/cobalt/Regions.o $(OBJDIR)/cobalt/WindowStatuses.o
+
+# purple/PurpleApplication.o 同樣**不在此列**：那是 purple_port 的 main()。
+# 整合版走 PurplePipeline 的 runFromInputs——與 purple_port 同一組函式。
+#
+# PurpleInputAdapter.o **只在這裡**編：它相依 amber/ 與 cobalt/ 的標頭（進而
+# htslib），purple/Makefile 的 purple_port 不編它，因為 purple_port 不連 htslib。
+# 它的職責是把 AMBER/COBALT 的 postscan 結果轉成 purple::InputData，
+# 並重現寫檔端的四位小數捨入——見該檔頂端的說明。
+PURPLE_OBJ = $(OBJDIR)/purple/PurplePipeline.o $(OBJDIR)/purple/PurpleInput.o \
+             $(OBJDIR)/purple/PurpleInputAdapter.o $(OBJDIR)/purple/PurpleSegmentation.o \
+             $(OBJDIR)/purple/PurpleObserved.o $(OBJDIR)/purple/PurpleFitting.o \
+             $(OBJDIR)/purple/PurpleCopyNumber.o $(OBJDIR)/purple/PurpleSummary.o \
+             $(OBJDIR)/purple/PurpleWriters.o
 
 # -ffp-contract=off 是**保真度旗標，不是最佳化偏好**：它決定 NoiseFloor 的 CDF
 # 是否與凍結候選逐位元組相同（amber/Makefile 的註解：61366 組中 5988 組會因收縮而變），
@@ -99,6 +113,12 @@ $(OBJDIR)/common/%.o: common/%.cpp | $(DEPDIR)
 $(OBJDIR)/cobalt/%.o: cobalt/%.cpp | $(DEPDIR)
 	mkdir -p $(OBJDIR)/cobalt $(DEPDIR)/cobalt
 	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/cobalt/$*.d -MT $@ -o $@ -c $<
+
+# purple/ 的物件同樣需要 -ffp-contract=off：purple/Makefile:3 已對 purple_port
+# 掛上同一旗標，兩個建置必須一致，否則整合版與凍結候選的浮點行為可能分岔。
+$(OBJDIR)/purple/%.o: purple/%.cpp | $(DEPDIR)
+	mkdir -p $(OBJDIR)/purple $(DEPDIR)/purple
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/purple/$*.d -MT $@ -o $@ -c $<
 
 MethylXgbModel.o: MethylXgbModel.cpp MethylXgbModel.h MethylXgbModelData.inc
 
