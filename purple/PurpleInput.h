@@ -9,6 +9,13 @@
 namespace purple {
 
 std::vector<AmberBaf> readAmberBafs(const std::string &path);
+// 由已量化的欄位值組出 CobaltRatio：套用 referenceReadDepth == -1 的特例與
+// genderAdjusted。讀檔路徑與記憶體交接路徑共用，這是兩者等價的依據。
+CobaltRatio makeCobaltRatio(const std::string &chromosome, int position,
+        double referenceReadDepth, double referenceGcRatio, double referenceGcDiploidRatio,
+        double referenceGcContent, double tumorReadDepth, double tumorGcRatio,
+        double tumorGcContent, Gender gender);
+
 std::vector<CobaltRatio> readCobaltRatios(const std::string &path, Gender gender);
 // PCF 檔一列代表的區間。start/end 已是換算後的最終值（新格式 end = rawEnd + 1），
 // 兩種檔案格式的差異在 readPcfPositions 內就收斂掉。

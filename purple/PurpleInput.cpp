@@ -99,6 +99,29 @@ std::vector<AmberBaf> readAmberBafs(const std::string &path){
     return result;
 }
 
+CobaltRatio makeCobaltRatio(const std::string &chromosome, int position,
+        double referenceReadDepth, double referenceGcRatio, double referenceGcDiploidRatio,
+        double referenceGcContent, double tumorReadDepth, double tumorGcRatio,
+        double tumorGcContent, Gender gender){
+    // 欄位值必須是**已量化**的（讀檔路徑天生如此；記憶體交接路徑由
+    // PurpleInputAdapter 的 roundTripCobaltRatio 先行處理）。
+    CobaltRatio ratio;
+    ratio.chromosome = chromosome;
+    ratio.position = position;
+    ratio.referenceReadDepth = referenceReadDepth;
+    if(referenceReadDepth == -1){
+        referenceGcRatio = 1;
+        referenceGcDiploidRatio = 1;
+    }
+    ratio.referenceGcRatio = genderAdjusted(gender, chromosome, referenceGcRatio);
+    ratio.referenceGcDiploidRatio = genderAdjusted(gender, chromosome, referenceGcDiploidRatio);
+    ratio.referenceGcContent = referenceGcContent;
+    ratio.tumorReadDepth = tumorReadDepth;
+    ratio.tumorGcRatio = tumorGcRatio;
+    ratio.tumorGcContent = tumorGcContent;
+    return ratio;
+}
+
 std::vector<CobaltRatio> readCobaltRatios(const std::string &path, Gender gender){
     std::vector<CobaltRatio> result;
     result.reserve(gzipDataLineCount(path));
@@ -107,23 +130,17 @@ std::vector<CobaltRatio> readCobaltRatios(const std::string &path, Gender gender
     forEachGzipLine(path, [&](const std::string &line){
         if(header){ col = columns(line); header = false; return; }
         const auto row = split(line);
-        CobaltRatio ratio;
-        ratio.chromosome = row.at(col.at("chromosome"));
-        ratio.position = std::stoi(row.at(col.at("position")));
-        ratio.referenceReadDepth = std::stod(row.at(col.at("referenceReadDepth")));
-        double referenceGcRatio = std::stod(row.at(col.at("referenceGCRatio")));
-        double referenceGcDiploidRatio = std::stod(row.at(col.at("referenceGCDiploidRatio")));
-        if(ratio.referenceReadDepth == -1){
-            referenceGcRatio = 1;
-            referenceGcDiploidRatio = 1;
-        }
-        ratio.referenceGcRatio = genderAdjusted(gender, ratio.chromosome, referenceGcRatio);
-        ratio.referenceGcDiploidRatio = genderAdjusted(gender, ratio.chromosome, referenceGcDiploidRatio);
-        ratio.referenceGcContent = std::stod(row.at(col.at("referenceGCContent")));
-        ratio.tumorReadDepth = std::stod(row.at(col.at("tumorReadDepth")));
-        ratio.tumorGcRatio = std::stod(row.at(col.at("tumorGCRatio")));
-        ratio.tumorGcContent = std::stod(row.at(col.at("tumorGCContent")));
-        result.push_back(std::move(ratio));
+        result.push_back(makeCobaltRatio(
+                row.at(col.at("chromosome")),
+                std::stoi(row.at(col.at("position"))),
+                std::stod(row.at(col.at("referenceReadDepth"))),
+                std::stod(row.at(col.at("referenceGCRatio"))),
+                std::stod(row.at(col.at("referenceGCDiploidRatio"))),
+                std::stod(row.at(col.at("referenceGCContent"))),
+                std::stod(row.at(col.at("tumorReadDepth"))),
+                std::stod(row.at(col.at("tumorGCRatio"))),
+                std::stod(row.at(col.at("tumorGCContent"))),
+                gender));
     });
     if(header){ throw std::runtime_error("empty Cobalt ratio input: " + path); }
     return result;
