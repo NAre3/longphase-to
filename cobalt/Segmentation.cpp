@@ -1,11 +1,14 @@
 #include "Segmentation.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 
 #include "CobaltConstants.h"
 #include "../common/HumanChromosome.h"
@@ -52,7 +55,7 @@ std::string format4(double v)
 
 }
 
-SegmentationResult segmentRatios(const std::vector<CobaltRatio> &ratios, double gamma)
+SegmentationResult segmentRatios(const std::vector<CobaltRatio> &ratios, double gamma, int threads)
 {
     SegmentationResult result;
     result.gamma = gamma;
@@ -108,29 +111,68 @@ SegmentationResult segmentRatios(const std::vector<CobaltRatio> &ratios, double 
             + std::to_string(totalCount));
     }
 
-    // ---- 逐 arm：penalty -> 分段 -> segment 座標 ----
-    for(ArmData &a : result.arms)
+    // ---- 逐 arm：penalty -> 分段 -> segment 座標（每臂一個工作單位，平行）----
+    //
+    // 各 arm 完全獨立：只讀自己的 valuesForSegmentation / rawValues / positions，
+    // 只寫自己的 trace / fit / pcfMeans / segments。沒有跨 arm 的共享狀態，也沒有
+    // 任何歸約，因此不存在相加順序造成的浮點差異。
+    //
+    // **輸出順序不受影響**：result.arms 在進入本迴圈前已依 ChrArm.compareTo 排好，
+    // 迴圈只填各元素的內容、不改動順序，故 SegmentsFile.write 走出的
+    // cobalt.ratio.pcf 列序與單執行緒時相同。CP-C13x 的 dump 另有自己的排序，
+    // 但那發生在本函式回傳之後（CobaltPipeline.cpp 的 dumpOrder），對已完成的資料操作。
+    //
+    // 平行度上限是最大的那個 arm——臂數只有 40 出頭，且長度差距大，
+    // 所以實際加速比遠低於執行緒數。
+    std::atomic<std::size_t> nextArm{0};
+    std::atomic<bool> failed{false};
+    std::string failure;
+    std::mutex failureMutex;
+    const int workerCount = std::max(1, threads);
+    std::vector<std::thread> pool;
+    pool.reserve(static_cast<std::size_t>(workerCount));
+    for(int w = 0; w < workerCount; ++w)
     {
-        if(a.valuesForSegmentation.empty()){ continue; }
+        pool.emplace_back([&]{
+            while(true)
+            {
+                const std::size_t index = nextArm.fetch_add(1);
+                if(index >= result.arms.size()){ break; }
+                ArmData &a = result.arms[index];
+                if(a.valuesForSegmentation.empty()){ continue; }
 
-        const double penalty = lp::gammaSegmentPenalty(a.valuesForSegmentation, gamma, true, &a.trace);
-        a.fit = lp::segment(a.valuesForSegmentation, penalty, &a.pcfMeans);
+                // 例外若逸出 std::thread 會直接 std::terminate，
+                // 故比照 ReadDepth.cpp 的作法：記錄下來，join 之後再重拋。
+                try
+                {
+                    const double penalty = lp::gammaSegmentPenalty(a.valuesForSegmentation, gamma, true, &a.trace);
+                    a.fit = lp::segment(a.valuesForSegmentation, penalty, &a.pcfMeans);
 
-        std::size_t idx = 0;
-        for(std::size_t i = 0; i < a.fit.lengths.size(); ++i)
-        {
-            const int count = a.fit.lengths[i];
-            PcfSegmentOut seg;
-            seg.chromosome = a.chromosomeShort;
-            seg.start = a.positions[idx];
-            // ChromosomeArmSegments.MeanRatio 取 **rawValues** 該段的平均（非 pcfMeans）
-            seg.meanRatio = doublesMean(a.rawValues.data() + idx, static_cast<std::size_t>(count));
-            idx += static_cast<std::size_t>(count);
-            // WindowSegments.segmentEnd = endRatio.position() + WINDOW_SIZE - 1（G3）
-            seg.end = a.positions[idx - 1] + WINDOW_SIZE - 1;
-            a.segments.push_back(std::move(seg));
-        }
+                    std::size_t idx = 0;
+                    for(std::size_t i = 0; i < a.fit.lengths.size(); ++i)
+                    {
+                        const int count = a.fit.lengths[i];
+                        PcfSegmentOut seg;
+                        seg.chromosome = a.chromosomeShort;
+                        seg.start = a.positions[idx];
+                        // ChromosomeArmSegments.MeanRatio 取 **rawValues** 該段的平均（非 pcfMeans）
+                        seg.meanRatio = doublesMean(a.rawValues.data() + idx, static_cast<std::size_t>(count));
+                        idx += static_cast<std::size_t>(count);
+                        // WindowSegments.segmentEnd = endRatio.position() + WINDOW_SIZE - 1（G3）
+                        seg.end = a.positions[idx - 1] + WINDOW_SIZE - 1;
+                        a.segments.push_back(std::move(seg));
+                    }
+                }
+                catch(const std::exception &exception)
+                {
+                    std::lock_guard<std::mutex> lock(failureMutex);
+                    if(!failed.exchange(true)){ failure = a.armId + ": " + exception.what(); }
+                }
+            }
+        });
     }
+    for(std::thread &t : pool){ t.join(); }
+    if(failed.load()){ throw std::runtime_error("cobalt PCF segmentation failed on arm " + failure); }
 
     return result;
 }

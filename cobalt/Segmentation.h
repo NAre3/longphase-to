@@ -49,7 +49,9 @@ struct SegmentationResult
     std::vector<ArmData> arms;   // 依 ChrArm.compareTo 排序
 };
 
-SegmentationResult segmentRatios(const std::vector<CobaltRatio> &ratios, double gamma);
+// threads：每臂一個工作單位。各臂獨立，輸出順序由 result.arms 決定而非完成順序，
+// 故結果與單執行緒逐位元組相同（由 -threads 1/16/16 三次執行對凍結輸出驗證）。
+SegmentationResult segmentRatios(const std::vector<CobaltRatio> &ratios, double gamma, int threads);
 
 // SegmentsFile.write：表頭四欄 Chromosome/Start/End/MeanRatio（無 n.probes，findings F1）
 void writeSegmentsFile(const std::string &path, const SegmentationResult &result);

@@ -412,10 +412,15 @@ PostscanResult postscan(const PipelineConfig &cfg, const PrescanResult &pre,
     }
 
     // ---------------- CP-C13 / C13b / C13c / C14 與 cobalt.ratio.pcf ----------------
-    // C++ 端的分段是**單執行緒**（Java 的 PerArmSegmenter.getSegmentation 吃 executor，
-    // C++ 未平行化）。依票面，本票的執行緒掃描結果僅涵蓋單執行緒分段，須在 manifest 明寫。
+    // 【2026-09-21 就地更正】原註解記載「C++ 端的分段是單執行緒，Java 的
+    // PerArmSegmenter.getSegmentation 吃 executor，C++ 未平行化」——該敘述已不再成立。
+    // 分段改為每臂一個工作單位平行執行（cobalt/Segmentation.cpp），與 Java 同樣以臂為
+    // 平行粒度。輸出順序由 result.arms 決定而非完成順序，故結果不變。
+    //
+    // 動機：在整合版的資源量測中，COBALT postscan 佔全流程 208s／699s（約 30%），
+    // 其中絕大部分是這段分段，而它當時完全沒有用到多核。
     const double pcfGamma = cfg.pcfGamma;
-    cobalt::SegmentationResult seg = cobalt::segmentRatios(collated, pcfGamma);
+    cobalt::SegmentationResult seg = cobalt::segmentRatios(collated, pcfGamma, cfg.threads);
 
     auto armLabel = [](const cobalt::ArmData &a){
         return "ChrArm[chromosome=" + a.chromosomeShort + ", arm=" + std::string(1, a.arm) + "]";
