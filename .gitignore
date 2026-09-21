@@ -48,3 +48,14 @@ __pycache__/
 
 # Not yet wired into the build/CI
 test/
+
+# Build products without a file extension.
+# The *.exe / *.o / *.so rules above match on extension, so they never covered
+# the standalone port executables or the main binary. amber/amber_port was
+# git-added by accident early in the AMBER port and stayed tracked through 11
+# commits; the other two were never added. Listing them here keeps all of them
+# out and the three ports consistent with each other.
+/longphase-to
+/amber/amber_port
+/cobalt/cobalt_port
+/purple/purple_port*
