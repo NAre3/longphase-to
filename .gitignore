@@ -59,3 +59,12 @@ test/
 /amber/amber_port
 /cobalt/cobalt_port
 /purple/purple_port*
+
+# Validation and research tooling: local only, never in the repository.
+# These are process artifacts -- comparison harnesses, diagnostic executables
+# and study records -- not the ported code. They are kept on the workstation;
+# committing them mixes the experiment log into the product history and, in the
+# case of research/studies/, would pull in tens of GB of checkpoint dumps.
+/research/
+/common/check_no_regression.sh
+/amber/tools/
