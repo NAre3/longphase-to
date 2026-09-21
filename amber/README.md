@@ -2,6 +2,13 @@
 
 對照對象：hmftools tag `amber-v4.3` 的 `AmberApplication` tumor-only 路徑。
 
+> **`research/` 與 `tools/` 底下的路徑是工作站本機的,不隨本 repo 發佈。**
+> 保真度研究的行為契約、math provenance、逐 run 驗證證據放在
+> `research/studies/purple-port-amber-fidelity-v1/`,診斷用的 CDF 一致性工具放在
+> `amber/tools/`——兩者都已刻意排除在版控之外:前者含數十 GB 的 checkpoint dump,
+> 後者是驗證器具而非產品程式碼,皆屬過程材料。本檔與原始碼註解中對這些路徑的引用
+> 是指向本機記錄,clone 下來不會有這些檔案。
+
 本階段（保真度驗證）**刻意不共用 LongPhase-TO 既有的 BAM 掃描，也不接進主程式的建置**，
 以便單獨編、單獨跑、單獨與 Java 逐值對照。整合是第二階段的事。
 
