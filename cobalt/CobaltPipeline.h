@@ -27,7 +27,9 @@ struct PipelineConfig
     std::string sampleId = "tumor";
     int threads = 1;
     int minMappingQuality = 10;      // cobalt_port 的 -min_quality 預設
-    double pcfGamma = 100.0;         // -pcf_gamma 預設；AMBER/COBALT 兩邊皆硬編碼 100
+    // -pcf_gamma 預設。1000 為本機 ONT 實測所定，非上游預設（HMF 為 100）；
+    // 重現 RUN-C002B 的保真度比對需明確傳 -pcf_gamma 100。
+    double pcfGamma = 1000.0;
     bool includeDuplicates = false;
     // 三個 stage 輸出是否落檔。**預設 true**：既有呼叫端（cobalt_port、
     // longphase-to 的 EXP-I03 整合）行為完全不變。

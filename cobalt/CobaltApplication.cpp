@@ -64,7 +64,7 @@ int main(int argc, char **argv)
     cfg.sampleId = arg(argc, argv, "-tumor", "tumor");
     cfg.threads = threads;
     cfg.minMappingQuality = minMappingQuality;
-    cfg.pcfGamma = std::atof(arg(argc, argv, "-pcf_gamma", "100").c_str());
+    cfg.pcfGamma = std::atof(arg(argc, argv, "-pcf_gamma", "1000").c_str());
     cfg.includeDuplicates = includeDuplicates;
 
     const cobalt::PrescanResult pre = cobalt::prescan(cfg);
