@@ -51,6 +51,23 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --meth-high=[0~1]                      high methylation probability threshold. default:0.8\n"
 "   --meth-low=[0~1]                       low methylation probability threshold. default:0.2\n\n"
 
+"AMBER integration arguments (all optional; none given = AMBER disabled):\n"
+"   --amber-loci=NAME                      AmberGermlineSites.38.tsv.gz. enables the AMBER consumer on the shared BAM scan.\n"
+"   --amber-excluded-bed=NAME              tumorOnlyExcludedSnp.38.bed. required together with --amber-loci.\n"
+"   --amber-output-dir=DIR                 write <sample>.amber.baf.tsv.gz, .amber.qc and .amber.baf.pcf into DIR.\n"
+"   --amber-sample=NAME                    sample id used for the AMBER output file names.\n"
+"   --amber-min-base-quality=Num           AMBER base quality threshold. default:13\n"
+"   --amber-min-map-quality=Num            AMBER mapping quality threshold. default:50\n"
+"   --cobalt-gc-profile=NAME               GC_profile.1000bp.38.cnp. enables the COBALT consumer.\n"
+"   --cobalt-excluded-regions=NAME         excluded regions tsv. required together with --cobalt-gc-profile.\n"
+"   --cobalt-diploid-bed=NAME              tumor-only diploid bed.gz. optional.\n"
+"   --cobalt-output-dir=DIR                write <sample>.cobalt.ratio.tsv.gz, .cobalt.ratio.pcf and .cobalt.gc.median.tsv.\n"
+"   --cobalt-sample=NAME                   sample id used for the COBALT output file names.\n"
+"   --cobalt-min-map-quality=Num           COBALT mapping quality threshold. default:10\n"
+"   --ensembl_data_dir=DIR                 Ensembl data cache. enables PURPLE; requires the AMBER and COBALT options too.\n"
+"   --purple-output-dir=DIR                write the six PURPLE core outputs.\n"
+"   --purple-sample=NAME                   sample id used for the PURPLE output file names. default: --amber-sample\n\n"
+
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
 "   -x, --mismatchRate=Num                 mark reads as false if mismatchRate of them are higher than threshold. default:3\n\n"
@@ -72,7 +89,12 @@ static const char *CORRECT_USAGE_MESSAGE =
 
 static const char* shortopts = "s:b:o:t:r:d:1:a:q:x:p:e:n:m:L:c:";
 
-enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, VERSION, PON_FILE, STRICT_PON_FILE, SOMATIC_CONNECT_ADJACENT, OUTPUT_LOH, OUTPUT_SGE, OUTPUT_LGE, OUTPUT_GE, DISABLE_PON_TAG, DISABLE_CALLING, DISABLE_REFINE_SOMATIC, OPT_PURITY, METHYL_XGB, DISABLE_METHYL_XGB, METHYL_XGB_SNV_THRESHOLD, METHYL_XGB_INDEL_THRESHOLD, METHYL_WINDOW, METH_HIGH, METH_LOW};
+enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, VERSION, PON_FILE, STRICT_PON_FILE, SOMATIC_CONNECT_ADJACENT, OUTPUT_LOH, OUTPUT_SGE, OUTPUT_LGE, OUTPUT_GE, DISABLE_PON_TAG, DISABLE_CALLING, DISABLE_REFINE_SOMATIC, OPT_PURITY, METHYL_XGB, DISABLE_METHYL_XGB, METHYL_XGB_SNV_THRESHOLD, METHYL_XGB_INDEL_THRESHOLD, METHYL_WINDOW, METH_HIGH, METH_LOW,
+       AMBER_LOCI, AMBER_EXCLUDED_BED, AMBER_OUTPUT_DIR, AMBER_SAMPLE,
+       AMBER_MIN_BASE_QUALITY, AMBER_MIN_MAP_QUALITY, AMBER_CPDUMP_DIR,
+       COBALT_GC_PROFILE, COBALT_DIPLOID_BED, COBALT_EXCLUDED_REGIONS,
+       PURPLE_ENSEMBL_DATA_DIR, PURPLE_OUTPUT_DIR, PURPLE_SAMPLE,
+       COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY};
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -117,6 +139,22 @@ static const struct option longopts[] = {
     { "overlapThreshold",     required_argument,  NULL, 'L' },
     { "caller",               required_argument,  NULL, 'c' },
     { "purity",               required_argument,  NULL, OPT_PURITY },
+    { "amber-loci",           required_argument,  NULL, AMBER_LOCI },
+    { "amber-excluded-bed",   required_argument,  NULL, AMBER_EXCLUDED_BED },
+    { "amber-output-dir",     required_argument,  NULL, AMBER_OUTPUT_DIR },
+    { "amber-sample",         required_argument,  NULL, AMBER_SAMPLE },
+    { "amber-min-base-quality", required_argument, NULL, AMBER_MIN_BASE_QUALITY },
+    { "amber-min-map-quality",  required_argument, NULL, AMBER_MIN_MAP_QUALITY },
+    { "amber-cpdump-dir",     required_argument,  NULL, AMBER_CPDUMP_DIR },
+    { "cobalt-gc-profile",    required_argument,  NULL, COBALT_GC_PROFILE },
+    { "cobalt-diploid-bed",   required_argument,  NULL, COBALT_DIPLOID_BED },
+    { "cobalt-excluded-regions", required_argument, NULL, COBALT_EXCLUDED_REGIONS },
+    { "ensembl_data_dir",     required_argument,  NULL, PURPLE_ENSEMBL_DATA_DIR },
+    { "purple-output-dir",    required_argument,  NULL, PURPLE_OUTPUT_DIR },
+    { "purple-sample",        required_argument,  NULL, PURPLE_SAMPLE },
+    { "cobalt-output-dir",    required_argument,  NULL, COBALT_OUTPUT_DIR },
+    { "cobalt-sample",        required_argument,  NULL, COBALT_SAMPLE },
+    { "cobalt-min-map-quality", required_argument, NULL, COBALT_MIN_MAP_QUALITY },
     { NULL, 0, NULL, 0 }
 };
 
@@ -234,6 +272,29 @@ namespace opt
 
     static int somaticConnectAdjacent = 6;
 
+    // ---- AMBER 整合（EXP-I02）----
+    static std::string amberLoci="";
+    static std::string amberExcludedBed="";
+    static std::string amberOutputDir="";
+    static std::string amberSample="";
+    static int amberMinBaseQuality=13;
+    static int amberMinMapQuality=50;
+    static std::string amberCpDumpDir="";
+
+    // ---- COBALT 整合（EXP-I03）----
+    static std::string cobaltGcProfile="";
+    static std::string cobaltDiploidBed="";
+    static std::string cobaltExcludedRegions="";
+    static std::string cobaltOutputDir="";
+    static std::string cobaltSample="";
+    static int cobaltMinMapQuality=10;
+
+    // ---- PURPLE 整合 ----
+    // 刻意沒有 ref_genome：染色體長度取自 BAM header @SQ，見 PhasingProcess.h 的說明。
+    static std::string purpleEnsemblDataDir="";
+    static std::string purpleOutputDir="";
+    static std::string purpleSample="";
+
     static bool outputLOH = false;
     static bool outputSGE = false;
     static bool outputLGE = false;
@@ -340,6 +401,22 @@ void PhasingOptions(int argc, char** argv)
                 die = true;
             }
             break;
+        case AMBER_LOCI: arg >> opt::amberLoci; break;
+        case AMBER_EXCLUDED_BED: arg >> opt::amberExcludedBed; break;
+        case AMBER_OUTPUT_DIR: arg >> opt::amberOutputDir; break;
+        case AMBER_SAMPLE: arg >> opt::amberSample; break;
+        case AMBER_MIN_BASE_QUALITY: arg >> opt::amberMinBaseQuality; break;
+        case AMBER_MIN_MAP_QUALITY: arg >> opt::amberMinMapQuality; break;
+        case AMBER_CPDUMP_DIR: arg >> opt::amberCpDumpDir; break;
+        case COBALT_GC_PROFILE: arg >> opt::cobaltGcProfile; break;
+        case COBALT_DIPLOID_BED: arg >> opt::cobaltDiploidBed; break;
+        case COBALT_EXCLUDED_REGIONS: arg >> opt::cobaltExcludedRegions; break;
+        case PURPLE_ENSEMBL_DATA_DIR: arg >> opt::purpleEnsemblDataDir; break;
+        case PURPLE_OUTPUT_DIR: arg >> opt::purpleOutputDir; break;
+        case PURPLE_SAMPLE: arg >> opt::purpleSample; break;
+        case COBALT_OUTPUT_DIR: arg >> opt::cobaltOutputDir; break;
+        case COBALT_SAMPLE: arg >> opt::cobaltSample; break;
+        case COBALT_MIN_MAP_QUALITY: arg >> opt::cobaltMinMapQuality; break;
         case OPT_HELP:
             std::cout << CORRECT_USAGE_MESSAGE;
             exit(EXIT_SUCCESS);
@@ -388,6 +465,91 @@ void PhasingOptions(int argc, char** argv)
     if(opt::bamFile.empty()){
         std::cerr << SUBPROGRAM ": missing BAM file.\n";
         die = true;
+    }
+
+    // ---- AMBER 整合的參數檢查（D-I2）----
+    // 兩個必填旗標「全給」或「全不給」，不接受半套：半套會讓 AMBER 靜默不啟用，
+    // 而使用者以為啟用了——那正是 F3 對照基準會被搞混的情形。
+    if(opt::amberLoci.empty() != opt::amberExcludedBed.empty()){
+        std::cerr << SUBPROGRAM
+                  << ": --amber-loci and --amber-excluded-bed must be given together.\n";
+        die = true;
+    }
+
+    // PURPLE 消費 AMBER 與 COBALT 的結果，缺任一邊都跑不了。
+    // 與上面同一個理由：寧可擋下來，也不要靜默不啟用讓使用者以為跑了。
+    if(!opt::purpleEnsemblDataDir.empty()){
+        if(opt::amberLoci.empty() || opt::cobaltGcProfile.empty()){
+            std::cerr << SUBPROGRAM
+                      << ": --ensembl_data_dir enables PURPLE, which needs both the AMBER"
+                      << " (--amber-loci) and COBALT (--cobalt-gc-profile) options.\n";
+            die = true;
+        }
+        std::ifstream openDir((opt::purpleEnsemblDataDir + "/ensembl_gene_data.csv").c_str());
+        if(!openDir.is_open()){
+            std::cerr << "Ensembl data cache " << opt::purpleEnsemblDataDir
+                      << " does not contain ensembl_gene_data.csv.\n\n";
+            die = true;
+        }
+    }
+
+    if(!opt::amberLoci.empty()){
+        for(const std::string &path : {opt::amberLoci, opt::amberExcludedBed}){
+            std::ifstream openFile(path.c_str());
+            if(!openFile.is_open()){
+                std::cerr << "File " << path << " not exist.\n\n";
+                die = true;
+            }
+        }
+
+        // AMBER 消費同一次共用走訪，而走訪是逐 BAM 進行的。多個 BAM 時每條 read
+        // 會被 AMBER 看到不只一次，per-locus 計數必然錯。此處直接擋掉，不猜使用者的意圖。
+        if(opt::bamFile.size() != 1){
+            std::cerr << SUBPROGRAM
+                      << ": --amber-loci requires exactly one -b BAM input (got "
+                      << opt::bamFile.size() << ").\n";
+            die = true;
+        }
+
+        if(opt::amberOutputDir.empty() != opt::amberSample.empty()){
+            std::cerr << SUBPROGRAM
+                      << ": --amber-output-dir and --amber-sample must be given together.\n";
+            die = true;
+        }
+    }
+
+    // ---- COBALT 整合的參數檢查（EXP-I03，沿用 D-I2 的規則）----
+    if(opt::cobaltGcProfile.empty() != opt::cobaltExcludedRegions.empty()){
+        std::cerr << SUBPROGRAM
+                  << ": --cobalt-gc-profile and --cobalt-excluded-regions must be given together.\n";
+        die = true;
+    }
+
+    if(!opt::cobaltGcProfile.empty()){
+        std::vector<std::string> needed = {opt::cobaltGcProfile, opt::cobaltExcludedRegions};
+        if(!opt::cobaltDiploidBed.empty()){ needed.push_back(opt::cobaltDiploidBed); }
+        for(const std::string &path : needed){
+            std::ifstream openFile(path.c_str());
+            if(!openFile.is_open()){
+                std::cerr << "File " << path << " not exist.\n\n";
+                die = true;
+            }
+        }
+
+        // 與 AMBER 同一個理由：COBALT 消費同一次共用走訪，多個 BAM 時每條 read
+        // 會被累加不只一次，window 計數必然錯。
+        if(opt::bamFile.size() != 1){
+            std::cerr << SUBPROGRAM
+                      << ": --cobalt-gc-profile requires exactly one -b BAM input (got "
+                      << opt::bamFile.size() << ").\n";
+            die = true;
+        }
+
+        if(opt::cobaltOutputDir.empty() != opt::cobaltSample.empty()){
+            std::cerr << SUBPROGRAM
+                      << ": --cobalt-output-dir and --cobalt-sample must be given together.\n";
+            die = true;
+        }
     }
 
     if(opt::bamFile.size() > 1 && opt::enableMethylXgb){
@@ -608,6 +770,25 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.outputLGE = opt::outputLGE;
     ecParams.outputGE = opt::outputGE;
     ecParams.purity = opt::purity;
+
+    ecParams.amberLoci = opt::amberLoci;
+    ecParams.amberExcludedBed = opt::amberExcludedBed;
+    ecParams.amberOutputDir = opt::amberOutputDir;
+    ecParams.amberSampleId = opt::amberSample;
+    ecParams.amberMinBaseQuality = opt::amberMinBaseQuality;
+    ecParams.amberMinMapQuality = opt::amberMinMapQuality;
+    ecParams.amberCpDumpDir = opt::amberCpDumpDir;
+
+    ecParams.cobaltGcProfile = opt::cobaltGcProfile;
+    ecParams.cobaltDiploidBed = opt::cobaltDiploidBed;
+    ecParams.cobaltExcludedRegions = opt::cobaltExcludedRegions;
+    ecParams.cobaltOutputDir = opt::cobaltOutputDir;
+    ecParams.cobaltSampleId = opt::cobaltSample;
+
+    ecParams.purpleEnsemblDataDir = opt::purpleEnsemblDataDir;
+    ecParams.purpleOutputDir = opt::purpleOutputDir;
+    ecParams.purpleSampleId = opt::purpleSample;
+    ecParams.cobaltMinMapQuality = opt::cobaltMinMapQuality;
 
     PhasingProcess processor(ecParams);
 

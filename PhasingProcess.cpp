@@ -3,6 +3,17 @@
 #include "ParsingBam.h"
 #include "SomaticRefinementPolicy.h"
 
+#include <set>
+
+#include "amber/AmberPipeline.h"
+#include "amber/SharedScanSink.h"
+#include "purple/PurplePipeline.h"
+#include "purple/PurpleInputAdapter.h"
+#include "cobalt/CobaltConstants.h"
+#include "cobalt/CobaltPipeline.h"
+#include "cobalt/ReadDepth.h"
+#include "common/CpDump.h"
+
 PhasingProcess::PhasingProcess(PhasingParameters params)
 {
     std::cerr<< "LongPhase-TO Ver " << params.version << "\n";
@@ -114,27 +125,177 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     }
     begin = time(NULL);
 
+    // ---- AMBER prescan（EXP-I02）----
+    //
+    // CP-A1 → CP-A2b 全部在共用走訪之前完成，產出 evidence 與 RegionTask。
+    // 之後每條染色體各自建一個 ContigSink，由共用走訪把 read 路由進去。
+    amber::PipelineConfig amberCfg;
+    amber::PrescanResult amberPrescan;
+    // postscan 的結果要活過下面的 if 區塊：PURPLE 直接吃它，不經過檔案。
+    amber::PostscanResult amberResult;
+    std::vector<amber::ContigSink *> amberSinks(chrName.size(), nullptr);
+    std::vector<std::string> scanContigs = chrName;
+
+    if(params.amberEnabled()){
+        amberCfg.lociPath = params.amberLoci;
+        amberCfg.bedPath = params.amberExcludedBed;
+        amberCfg.tumorBam = params.bamFile.front();
+        amberCfg.outputDir = params.amberOutputDir;
+        // PURPLE 啟用時中間檔案預設不落地——PURPLE 改吃記憶體結果，
+        // 使用者要檔案就明確給 output dir。PURPLE 未啟用時維持既有行為。
+        amberCfg.writeStageOutputs = !params.amberOutputDir.empty() || !params.purpleEnabled();
+        amberCfg.sampleId = params.amberSampleId;
+        amberCfg.minBaseQuality = params.amberMinBaseQuality;
+        amberCfg.minMappingQuality = params.amberMinMapQuality;
+        amberCfg.threads = params.numThreads;
+
+        lp::CpDump::setDir(params.amberCpDumpDir);
+
+        begin = time(NULL);
+        std::cerr<< "AMBER prescan ... ";
+        amberPrescan = amber::prescan(amberCfg);
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
+
+        // 掃描的 contig 清單 = 候選 VCF 的 contig ∪ AMBER 的 contig（C4／D7）。
+        // 候選 VCF 沒有的 contig 仍必須被掃描，否則該 contig 上的 AMBER 位點整條缺席。
+        const std::vector<std::pair<std::string, std::pair<std::size_t, std::size_t>>> taskIndex =
+                amber::indexTasksByChromosome(amberPrescan.tasks);
+
+        std::set<std::string> vcfContigs(chrName.begin(), chrName.end());
+        for(const auto &entry : taskIndex){
+            if(vcfContigs.find(entry.first) == vcfContigs.end()){
+                scanContigs.push_back(entry.first);
+            }
+        }
+
+        // sink 的擁有權放在這個 vector，索引與 scanContigs 對齊。
+        // 先一次配置完，迴圈內不再有任何容器改動 → 平行迴圈無共享寫入。
+        amberSinks.assign(scanContigs.size(), nullptr);
+        for(const auto &entry : taskIndex){
+            const std::size_t slot = std::find(scanContigs.begin(), scanContigs.end(), entry.first)
+                    - scanContigs.begin();
+            if(slot >= scanContigs.size()){
+                continue;
+            }
+            amberSinks[slot] = new amber::ContigSink(
+                    amberPrescan.tasks.data() + entry.second.first,
+                    amberPrescan.tasks.data() + entry.second.second,
+                    amberCfg.minMappingQuality, amberCfg.minBaseQuality);
+        }
+    }
+
+    // ---- COBALT prescan（EXP-I03）----
+    //
+    // CP-C1 → CP-C5 在共用走訪之前完成。與 AMBER 不同的是 COBALT 只需要**一個**
+    // 全域 accumulator：ReadDepthAccumulator 內部依染色體分槽、各槽自己的 atomic
+    // 陣列，故不同執行緒寫不同染色體的槽互不干擾（design.md E1）。
+    cobalt::PipelineConfig cobaltCfg;
+    cobalt::PrescanResult cobaltPrescan;
+    cobalt::PostscanResult cobaltResult;
+    std::unique_ptr<cobalt::ReadDepthAccumulator> cobaltAccumulator;
+    std::vector<cobalt::DepthSink *> cobaltSinks;
+    std::map<std::string, int> cobaltContigLength;
+
+    if(params.cobaltEnabled()){
+        cobaltCfg.bamPath = params.bamFile.front();
+        cobaltCfg.gcProfile = params.cobaltGcProfile;
+        cobaltCfg.diploidBed = params.cobaltDiploidBed;
+        cobaltCfg.excludedPath = params.cobaltExcludedRegions;
+        cobaltCfg.outputDir = params.cobaltOutputDir.empty() ? "." : params.cobaltOutputDir;
+        // 同上。COBALT 的 outputDir 預設為 "."（會寫進工作目錄），
+        // 因此這裡必須靠 writeStageOutputs 才關得掉。
+        cobaltCfg.writeStageOutputs = !params.cobaltOutputDir.empty() || !params.purpleEnabled();
+        cobaltCfg.sampleId = params.cobaltSampleId.empty() ? "tumor" : params.cobaltSampleId;
+        cobaltCfg.minMappingQuality = params.cobaltMinMapQuality;
+        cobaltCfg.threads = params.numThreads;
+
+        if(!params.amberEnabled()){
+            lp::CpDump::setDir(params.amberCpDumpDir);
+        }
+
+        begin = time(NULL);
+        std::cerr<< "COBALT prescan ... ";
+        cobaltPrescan = cobalt::prescan(cobaltCfg);
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
+
+        // COBALT 的 contig 來自 BAM header @SQ 過濾 isHumanChromosome（CobaltApplication.cpp:38-59），
+        // 與候選 VCF、AMBER 的清單都可能不同 ⇒ 併進 scanContigs（C4 / design.md E2）。
+        std::set<std::string> known(scanContigs.begin(), scanContigs.end());
+        for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
+            cobaltContigLength[c.name] = c.length;
+            if(known.insert(c.name).second){
+                scanContigs.push_back(c.name);
+            }
+        }
+
+        cobaltAccumulator.reset(new cobalt::ReadDepthAccumulator(cobalt::WINDOW_SIZE));
+        for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
+            cobaltAccumulator->addChromosome(c.name, c.length);
+        }
+    }
+
+    // scanContigs 可能因 COBALT 而變長，amberSinks 的索引必須重新對齊
+    amberSinks.resize(scanContigs.size(), nullptr);
+    cobaltSinks.assign(scanContigs.size(), nullptr);
+    if(params.cobaltEnabled()){
+        for(std::size_t i = 0; i < scanContigs.size(); i++){
+            std::map<std::string, int>::const_iterator found = cobaltContigLength.find(scanContigs[i]);
+            if(found == cobaltContigLength.end()){
+                continue;   // 此 contig 不在 COBALT 的清單內（非人類染色體）
+            }
+            cobaltSinks[i] = new cobalt::DepthSink(*cobaltAccumulator, scanContigs[i], found->second,
+                    cobaltCfg.minMappingQuality, cobaltCfg.includeDuplicates);
+        }
+    }
+
     // loop all chromosome
     #pragma omp parallel for schedule(dynamic) num_threads(params.numThreads)
-    for(std::vector<std::string>::iterator chrIter = chrName.begin(); chrIter != chrName.end() ; chrIter++ ){
+    for(int scanIdx = 0; scanIdx < static_cast<int>(scanContigs.size()); scanIdx++ ){
 
+        // 取副本：VairiantGraph 的建構子要的是 std::string&（非 const）
+        std::string contigName = scanContigs[scanIdx];
         std::time_t chrbegin = time(NULL);
-        ChrInfo &chrInfo = chrInfoMap[*chrIter];
+        amber::ContigSink *amberSink = amberSinks[scanIdx];
+        cobalt::DepthSink *cobaltSink = cobaltSinks[scanIdx];
+
         // get lase SNP variant position
-        int lastSNPpos = snpFile.getLastSNP((*chrIter));
+        // scanContigs 的尾段可能是 AMBER 專屬的 contig，那些不在 snpFile 內。
+        int lastSNPpos = (scanIdx < static_cast<int>(chrName.size()))
+                ? snpFile.getLastSNP(contigName) : -1;
+
+        // 共用走訪的右界（design.md D9）
+        int scanRightEdge = lastSNPpos;
+        if( amberSink != nullptr ){
+            scanRightEdge = std::max(scanRightEdge, amberSink->maxTaskEnd());
+        }
+        // COBALT 要每個 window 都被看到 ⇒ 右界推到整條 contig（design.md E3）。
+        // **F3 因此必須在 EXP-I03 重新量測，不得沿用 EXP-I02 的結果。**
+        if( cobaltSink != nullptr ){
+            scanRightEdge = std::max(scanRightEdge, cobaltContigLength[contigName]);
+        }
+
         // therer is no variant on SNP file.
         if( lastSNPpos == -1 ){
+            // D7：沒有候選變異的 contig 現在仍必須被掃描給 AMBER，只跳過 clip／graph／phasing。
+            // BamParser 在此建不出來（D4：建構子對空 variant map 直接 exit(1)），
+            // 故走另一個進入點。
+            if( (amberSink != nullptr || cobaltSink != nullptr) && scanRightEdge > 0 ){
+                consumerOnlyContigScan(params.bamFile.front(), contigName, scanRightEdge,
+                        threadPool, params, amberSink, cobaltSink);
+            }
             continue;
         }
 
+        ChrInfo &chrInfo = chrInfoMap[contigName];
+
 	    // fetch chromosome string
-        std::string chr_reference = fastaParser.chrString.at(*chrIter);
+        std::string chr_reference = fastaParser.chrString.at(contigName);
         // create a bam parser object and prepare to fetch varint from each vcf file
-	    BamParser *bamParser = new BamParser((*chrIter), params.bamFile, snpFile, svFile, modFile, chr_reference);
+	    BamParser *bamParser = new BamParser(contigName, params.bamFile, snpFile, svFile, modFile, chr_reference);
         // use to store variant
         std::vector<ReadVariant> *readVariantVec = new std::vector<ReadVariant>();
         // run fetch variant process
-        bamParser->direct_detect_alleles(lastSNPpos, threadPool, params, *readVariantVec, chrInfo.clipCount, chr_reference);
+        bamParser->direct_detect_alleles(lastSNPpos, scanRightEdge, threadPool, params, *readVariantVec, chrInfo.clipCount, chr_reference, amberSink, cobaltSink);
         // free memory
         delete bamParser;
 
@@ -150,7 +311,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         }
 
         // create a clip object and prepare to detect Interval
-        Clip *clip = new Clip(*chrIter);
+        Clip *clip = new Clip(contigName);
         // get the interval of the genomic event
         clip->detectGenomicEventInterval(chrInfo.clipCount, chrInfo.largeGenomicEventInterval, chrInfo.smallGenomicEventRegion);
         // get the region of the LOH
@@ -159,19 +320,120 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         delete clip;
 
         // create a graph object and prepare to phasing.
-        VairiantGraph *vGraph = new VairiantGraph(chr_reference, params, (*chrIter));
+        VairiantGraph *vGraph = new VairiantGraph(chr_reference, params, contigName);
         chrInfo.vGraph = vGraph;
         // trans read-snp info to edge info
         vGraph->addEdge(readVariantVec, chrInfo.LOHSegments);
         if(!params.disableCalling){
             // run somatic calling algorithm
-            vGraph->somaticCalling(snpFile.getVariants((*chrIter)));
+            vGraph->somaticCalling(snpFile.getVariants(contigName));
         }else{
-            vGraph->tagSomatic(snpFile.getVariants((*chrIter)));
+            vGraph->tagSomatic(snpFile.getVariants(contigName));
         }
         // run main algorithm
         vGraph->phasingProcess(chrInfo.posPhasingResult, chrInfo.LOHSegments, &chrInfo.ploidyRatioMap);
-        std::cerr<< "(" << (*chrIter) << "," << difftime(time(NULL), chrbegin) << "s)";
+        std::cerr<< "(" << contigName << "," << difftime(time(NULL), chrbegin) << "s)";
+    }
+
+    // ---- AMBER postscan（EXP-I02）----
+    //
+    // CP-A3 → CP-A9 與三個 stage 輸出。呼叫的是 amber_port 用的同一組函式。
+    if(params.amberEnabled()){
+        std::cerr << std::endl;
+
+        // 每條染色體一個 sink，各自持有自己的計數。兩個計數器都是整數加總，
+        // 與相加順序無關（BamEvidenceReader.cpp:284-289 的同一個論證）。
+        amber::BamScanStats amberStats;
+        for(amber::ContigSink *sink : amberSinks){
+            if(sink == nullptr){
+                continue;
+            }
+            amberStats.recordsConsumed += sink->stats().recordsConsumed;
+            amberStats.nonAcgtnBases += sink->stats().nonAcgtnBases;
+        }
+
+        // recordsConsumed 的語義與 amber_port 不同（design.md D3）：此處是「通過 slicer
+        // filter 的 read 數」，amber_port 是「per-region 造訪次數」。刻意不重現，
+        // 該欄位不進任何 checkpoint 或 stage 輸出。
+        std::fprintf(stderr, "AMBER shared scan: consumed %llu reads (per-read, not per-region), "
+                "non-ACGTN bases at evaluated positions: %llu\n",
+                static_cast<unsigned long long>(amberStats.recordsConsumed),
+                static_cast<unsigned long long>(amberStats.nonAcgtnBases));
+
+        for(amber::ContigSink *sink : amberSinks){
+            delete sink;
+        }
+        amberSinks.clear();
+
+        begin = time(NULL);
+        std::cerr<< "AMBER postscan ... ";
+        amberResult = amber::postscan(amberCfg, amberPrescan.evidence, amberStats);
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
+    }
+
+    // ---- COBALT postscan（EXP-I03）----
+    //
+    // CP-C6 → CP-C14 與三個 stage 輸出。呼叫的是 cobalt_port 用的同一組函式。
+    // depths 由 accumulator 依 prescan 的 chromosomes 順序取出——**該順序取自
+    // BAM header @SQ，與共用走訪的 contig 順序無關**（design.md E2），
+    // 因此 scanContigs 的排法不影響 COBALT 的任何輸出。
+    if(params.cobaltEnabled()){
+        std::cerr << std::endl;
+
+        for(cobalt::DepthSink *sink : cobaltSinks){
+            delete sink;
+        }
+        cobaltSinks.clear();
+
+        std::vector<cobalt::DepthReading> depths;
+        for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
+            std::vector<cobalt::DepthReading> v =
+                    cobaltAccumulator->getChromosomeReadDepths(c.name);
+            depths.insert(depths.end(), std::make_move_iterator(v.begin()),
+                    std::make_move_iterator(v.end()));
+        }
+
+        begin = time(NULL);
+        std::cerr<< "COBALT postscan ... ";
+        cobaltResult = cobalt::postscan(cobaltCfg, cobaltPrescan, depths);
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
+    }
+
+    // ---- PURPLE（記憶體接手）----
+    //
+    // PURPLE 不讀 BAM，所以不參與共用掃描；它接在 AMBER 與 COBALT 的 postscan
+    // 之後，直接吃兩者的記憶體結果。buildInputsFromMemory 會重現寫檔端的四位
+    // 小數捨入，因此這條路徑與「寫出五個 stage 檔案再讀回」等價——理由見
+    // purple/PurpleInputAdapter.h。
+    //
+    // 染色體長度取自 cobaltPrescan.chromosomes，其來源是 BAM header @SQ
+    // （cobalt/CobaltPipeline.cpp 的 loadChromosomes），因此不需要 -ref_genome。
+    if(params.purpleEnabled()){
+        std::cerr << std::endl;
+        begin = time(NULL);
+        std::cerr<< "PURPLE ... ";
+
+        purple::ChromosomeLengths lengths;
+        for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
+            lengths[c.name] = c.length;
+        }
+
+        purple::PipelineConfig purpleCfg;
+        purpleCfg.sampleId = params.purpleSampleId.empty() ? params.amberSampleId : params.purpleSampleId;
+        purpleCfg.ensemblDataDir = params.purpleEnsemblDataDir;
+        purpleCfg.outputDir = params.purpleOutputDir;
+        purpleCfg.threads = params.numThreads;
+        // refGenome 刻意留空：長度已由 lengths 提供。
+
+        lp::CpDump::setDir(params.purpleCpDumpDir);
+        const purple::InputData purpleInputs = purple::buildInputsFromMemory(
+                purpleCfg.sampleId,
+                amberResult.bafs, amberResult.segmentation,
+                cobaltResult.ratios, cobaltResult.segmentation,
+                amberResult.contamination);
+        purple::runFromInputs(purpleCfg, purpleInputs, lengths);
+
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
     }
 
     std::map<std::string, std::map<double, int>> mergedPloidyRatioMap;

@@ -3,11 +3,66 @@ CXX      = g++
 AR       = ar
 AWK      = awk
 CFLAGS   = -g -Wall -O2 -pedantic -std=c99 -D_XOPEN_SOURCE=600
-CPPFLAGS = -std=c++11 -g -Wall -O3 -fopenmp
+# EXP-I02：由 -std=c++11 提升到 c++17。
+# 理由：amber/ 的來源需要 C++14 以上（BamEvidenceReader.cpp 的 RegionTask aggregate init
+# 帶 default member initializer）。實測主程式六個 source 在 c++17 下無新警告、無錯誤。
+CPPFLAGS = -std=c++17 -g -Wall -O3 -fopenmp
 LDFLAGS  =
 LIBS     =
 
-OBJ = Haplotag.o ParsingBam.o Util.o HaplotagProcess.o PhasingProcess.o Phasing.o PhasingGraph.o MethylXgbModel.o MethylXgbFeatureExtraction.o ModCall.o ModCallParsingBam.o ModCallProcess.o main.o
+OBJ = Haplotag.o ParsingBam.o Util.o HaplotagProcess.o PhasingProcess.o Phasing.o PhasingGraph.o MethylXgbModel.o MethylXgbFeatureExtraction.o ModCall.o ModCallParsingBam.o ModCallProcess.o main.o $(AMBER_OBJ)
+
+# ---- AMBER 整合（EXP-I02）----
+#
+# amber/AmberApplication.o **不在此列**：那是 amber_port 的 main()，
+# 連進 longphase-to 會與 main.o 的 main() 撞名。整合版用的是 AmberPipeline 的
+# prescan/postscan——與 amber_port 呼叫的同一組函式。
+# **物件檔一律放進 build/obj/，不放回原始碼目錄。**
+# 理由（EXP-I03 發現）：amber/Makefile 與 cobalt/Makefile 用 -O2 編到 amber/*.o、
+# cobalt/*.o，主 build 用 -O3 -g 編到同一批路徑。兩者互相覆蓋，且 make 看到 .o
+# 是新的就不重編——於是 amber_port / cobalt_port 究竟用哪組旗語建成，
+# 取決於「誰後跑」。保真度關鍵的 -ffp-contract=off 兩邊都有，所以輸出不受影響，
+# 但這是靜默的建置不確定性，必須消除。分開輸出目錄即可。
+AMBER_OBJ = $(OBJDIR)/amber/AmberPipeline.o $(OBJDIR)/amber/SharedScanSink.o \
+            $(OBJDIR)/amber/AmberOutput.o $(OBJDIR)/amber/AmberSitesFile.o \
+            $(OBJDIR)/amber/BamEvidenceReader.o $(OBJDIR)/amber/TumorFilters.o \
+            $(OBJDIR)/amber/NoiseFloor.o $(OBJDIR)/amber/CommonsMath.o \
+            $(OBJDIR)/amber/Segmentation.o \
+            $(COBALT_OBJ) \
+            $(PURPLE_OBJ) \
+            $(OBJDIR)/common/CpDump.o $(OBJDIR)/common/HumanChromosome.o \
+            $(OBJDIR)/common/SamRecordView.o $(OBJDIR)/common/Segmentation.o
+
+OBJDIR = build/obj
+
+# cobalt/CobaltApplication.o 同樣**不在此列**：那是 cobalt_port 的 main()。
+# 整合版用的是 CobaltPipeline 的 prescan/postscan——與 cobalt_port 同一組函式。
+COBALT_OBJ = $(OBJDIR)/cobalt/CobaltPipeline.o $(OBJDIR)/cobalt/BamRatio.o \
+             $(OBJDIR)/cobalt/CobaltOutput.o $(OBJDIR)/cobalt/CobaltWindow.o \
+             $(OBJDIR)/cobalt/Consolidation.o $(OBJDIR)/cobalt/GcBuckets.o \
+             $(OBJDIR)/cobalt/GcProfile.o $(OBJDIR)/cobalt/Percentile.o \
+             $(OBJDIR)/cobalt/Segmentation.o $(OBJDIR)/cobalt/ReadDepth.o \
+             $(OBJDIR)/cobalt/Regions.o $(OBJDIR)/cobalt/WindowStatuses.o
+
+# purple/PurpleApplication.o 同樣**不在此列**：那是 purple_port 的 main()。
+# 整合版走 PurplePipeline 的 runFromInputs——與 purple_port 同一組函式。
+#
+# PurpleInputAdapter.o **只在這裡**編：它相依 amber/ 與 cobalt/ 的標頭（進而
+# htslib），purple/Makefile 的 purple_port 不編它，因為 purple_port 不連 htslib。
+# 它的職責是把 AMBER/COBALT 的 postscan 結果轉成 purple::InputData，
+# 並重現寫檔端的四位小數捨入——見該檔頂端的說明。
+PURPLE_OBJ = $(OBJDIR)/purple/PurplePipeline.o $(OBJDIR)/purple/PurpleInput.o \
+             $(OBJDIR)/purple/PurpleInputAdapter.o $(OBJDIR)/purple/PurpleSegmentation.o \
+             $(OBJDIR)/purple/PurpleObserved.o $(OBJDIR)/purple/PurpleFitting.o \
+             $(OBJDIR)/purple/PurpleCopyNumber.o $(OBJDIR)/purple/PurpleSummary.o \
+             $(OBJDIR)/purple/PurpleWriters.o
+
+# -ffp-contract=off 是**保真度旗標，不是最佳化偏好**：它決定 NoiseFloor 的 CDF
+# 是否與凍結候選逐位元組相同（amber/Makefile 的註解：61366 組中 5988 組會因收縮而變），
+# 而 amber.baf.pcf 直接由那些數字產生。
+# 只掛在 amber/ 與 common/ 的物件上，**不全域套用**——全域套用會改動 LongPhase-TO
+# 自身的浮點行為，那會直接威脅 F3。
+AMBER_CXXFLAGS = -ffp-contract=off
 DEPDIR = build/deps
 DEPS = $(OBJ:%.o=$(DEPDIR)/%.d)
 
@@ -44,6 +99,27 @@ $(PROGRAMS): $(OBJ)
 %.o: %.cpp | $(DEPDIR)
 	$(CXX) $(ALL_CPPFLAGS) -MMD -MP -MF $(DEPDIR)/$*.d -MT $@ -o $@ -c $<
 
+# amber/ 與 common/ 的物件多帶 -ffp-contract=off（見 AMBER_CXXFLAGS 的說明）
+$(OBJDIR)/amber/%.o: amber/%.cpp | $(DEPDIR)
+	mkdir -p $(OBJDIR)/amber $(DEPDIR)/amber
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/amber/$*.d -MT $@ -o $@ -c $<
+
+$(OBJDIR)/common/%.o: common/%.cpp | $(DEPDIR)
+	mkdir -p $(OBJDIR)/common $(DEPDIR)/common
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/common/$*.d -MT $@ -o $@ -c $<
+
+# cobalt/ 的物件與 amber/ 同樣需要 -ffp-contract=off：cobalt/Makefile:7 的理由相同
+# ——輸出不得隨編譯器與 -march 飄移，否則破壞規格 §6 的 rerun_pass。
+$(OBJDIR)/cobalt/%.o: cobalt/%.cpp | $(DEPDIR)
+	mkdir -p $(OBJDIR)/cobalt $(DEPDIR)/cobalt
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/cobalt/$*.d -MT $@ -o $@ -c $<
+
+# purple/ 的物件同樣需要 -ffp-contract=off：purple/Makefile:3 已對 purple_port
+# 掛上同一旗標，兩個建置必須一致，否則整合版與凍結候選的浮點行為可能分岔。
+$(OBJDIR)/purple/%.o: purple/%.cpp | $(DEPDIR)
+	mkdir -p $(OBJDIR)/purple $(DEPDIR)/purple
+	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/purple/$*.d -MT $@ -o $@ -c $<
+
 MethylXgbModel.o: MethylXgbModel.cpp MethylXgbModel.h MethylXgbModelData.inc
 
 $(DEPDIR):
@@ -53,6 +129,7 @@ $(DEPDIR):
 
 mostlyclean:
 	-rm -f *.o *.d
+	-rm -rf $(OBJDIR)
 	-rm -rf $(DEPDIR)
 
 clean: mostlyclean
