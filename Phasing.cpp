@@ -66,7 +66,10 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --cobalt-min-map-quality=Num           COBALT mapping quality threshold. default:10\n"
 "   --ensembl_data_dir=DIR                 Ensembl data cache. enables PURPLE; requires the AMBER and COBALT options too.\n"
 "   --purple-output-dir=DIR                write the six PURPLE core outputs.\n"
-"   --purple-sample=NAME                   sample id used for the PURPLE output file names. default: --amber-sample\n\n"
+"   --purple-sample=NAME                   sample id used for the PURPLE output file names. default: --amber-sample\n"
+"   --disable-purple-loh-fill              do not fill AMBER BAF observations in longphase-to LOH segments before PURPLE fitting.\n"
+"                                          (the fill is on by default; it writes <sample>.purple.loh_fill.tsv)\n"
+"   --purple-cpdump-dir=DIR                write PURPLE checkpoint dumps (CP-P*) into DIR.\n\n"
 
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
@@ -94,7 +97,8 @@ enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, V
        AMBER_MIN_BASE_QUALITY, AMBER_MIN_MAP_QUALITY, AMBER_CPDUMP_DIR,
        COBALT_GC_PROFILE, COBALT_DIPLOID_BED, COBALT_EXCLUDED_REGIONS,
        PURPLE_ENSEMBL_DATA_DIR, PURPLE_OUTPUT_DIR, PURPLE_SAMPLE,
-       COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY};
+       COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY,
+       DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR};
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -155,6 +159,8 @@ static const struct option longopts[] = {
     { "cobalt-output-dir",    required_argument,  NULL, COBALT_OUTPUT_DIR },
     { "cobalt-sample",        required_argument,  NULL, COBALT_SAMPLE },
     { "cobalt-min-map-quality", required_argument, NULL, COBALT_MIN_MAP_QUALITY },
+    { "disable-purple-loh-fill", no_argument,     NULL, DISABLE_PURPLE_LOH_FILL },
+    { "purple-cpdump-dir",    required_argument,  NULL, PURPLE_CPDUMP_DIR },
     { NULL, 0, NULL, 0 }
 };
 
@@ -294,6 +300,8 @@ namespace opt
     static std::string purpleEnsemblDataDir="";
     static std::string purpleOutputDir="";
     static std::string purpleSample="";
+    static bool purpleLohFill=true;
+    static std::string purpleCpDumpDir="";
 
     static bool outputLOH = false;
     static bool outputSGE = false;
@@ -414,6 +422,8 @@ void PhasingOptions(int argc, char** argv)
         case PURPLE_ENSEMBL_DATA_DIR: arg >> opt::purpleEnsemblDataDir; break;
         case PURPLE_OUTPUT_DIR: arg >> opt::purpleOutputDir; break;
         case PURPLE_SAMPLE: arg >> opt::purpleSample; break;
+        case DISABLE_PURPLE_LOH_FILL: opt::purpleLohFill=false; break;
+        case PURPLE_CPDUMP_DIR: arg >> opt::purpleCpDumpDir; break;
         case COBALT_OUTPUT_DIR: arg >> opt::cobaltOutputDir; break;
         case COBALT_SAMPLE: arg >> opt::cobaltSample; break;
         case COBALT_MIN_MAP_QUALITY: arg >> opt::cobaltMinMapQuality; break;
@@ -788,6 +798,8 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.purpleEnsemblDataDir = opt::purpleEnsemblDataDir;
     ecParams.purpleOutputDir = opt::purpleOutputDir;
     ecParams.purpleSampleId = opt::purpleSample;
+    ecParams.purpleLohFill = opt::purpleLohFill;
+    ecParams.purpleCpDumpDir = opt::purpleCpDumpDir;
     ecParams.cobaltMinMapQuality = opt::cobaltMinMapQuality;
 
     PhasingProcess processor(ecParams);

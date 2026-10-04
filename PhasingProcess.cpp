@@ -13,6 +13,7 @@
 #include "cobalt/CobaltPipeline.h"
 #include "cobalt/ReadDepth.h"
 #include "common/CpDump.h"
+#include "common/HumanChromosome.h"
 
 PhasingProcess::PhasingProcess(PhasingParameters params)
 {
@@ -431,7 +432,22 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
                 amberResult.bafs, amberResult.segmentation,
                 cobaltResult.ratios, cobaltResult.segmentation,
                 amberResult.contamination);
-        purple::runFromInputs(purpleCfg, purpleInputs, lengths);
+        // LOH 補回：LOH 段取自共用走訪中算好的 chrInfo.LOHSegments（與 --loh 寫出的
+        // _LOH.bed 同一份資料，ParsingBam.cpp 的 writeLOHSegments），位點清單用
+        // --amber-loci 的原始檔（不套 tumor-only blacklist，見 purple/PurpleLohFill.h）。
+        if(params.purpleLohFill){
+            purple::LohFillInput lohFill;
+            for(const auto &entry : chrInfoMap){
+                const std::string chromosome = lp::stripChrPrefix(entry.first);
+                for(const auto &segment : entry.second.LOHSegments){
+                    lohFill.lohSpans[chromosome].push_back({segment.start, segment.end});
+                }
+            }
+            lohFill.panelPositions = purple::loadPanelPositions(params.amberLoci);
+            purple::runFromInputs(purpleCfg, purpleInputs, lengths, &lohFill);
+        }else{
+            purple::runFromInputs(purpleCfg, purpleInputs, lengths);
+        }
 
         std::cerr<< difftime(time(NULL), begin) << "s\n";
     }

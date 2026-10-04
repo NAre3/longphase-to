@@ -13,7 +13,7 @@ LDLIBS   := -lz -pthread
 # 另一個好處：make -C purple clean 不再刪掉 amber/cobalt 還在用的物件。
 OBJDIR := build
 
-SRC := PurpleApplication.cpp PurplePipeline.cpp PurpleInput.cpp PurpleSegmentation.cpp PurpleObserved.cpp PurpleFitting.cpp PurpleCopyNumber.cpp PurpleSummary.cpp PurpleWriters.cpp
+SRC := PurpleApplication.cpp PurplePipeline.cpp PurpleInput.cpp PurpleSegmentation.cpp PurpleObserved.cpp PurpleFitting.cpp PurpleCopyNumber.cpp PurpleSummary.cpp PurpleWriters.cpp PurpleLohFill.cpp
 # PurpleInputAdapter.cpp **刻意不在此列**：它相依 amber/ 與 cobalt/ 的標頭（進而 htslib），
 # purple_port 既不需要也沒有連結 htslib。只有頂層整合建置會編它。
 COMMON_SRC := CpDump.cpp HumanChromosome.cpp

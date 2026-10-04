@@ -88,6 +88,9 @@ struct PhasingParameters
     std::string purpleOutputDir = "";
     std::string purpleSampleId = "";
     std::string purpleCpDumpDir = "";
+    // 用 longphase-to 的 LOH 段補回 AMBER 在高純度漏掉的 BAF 觀測（purple/PurpleLohFill.h）。
+    // 預設開啟；--disable-purple-loh-fill 關閉。
+    bool purpleLohFill = true;
 
     bool amberEnabled() const { return !amberLoci.empty(); }
     bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }

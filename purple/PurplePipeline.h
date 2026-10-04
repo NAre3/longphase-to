@@ -5,6 +5,7 @@
 
 #include "PurpleTypes.h"
 #include "PurpleSegmentation.h"
+#include "PurpleLohFill.h"
 
 namespace purple {
 
@@ -42,17 +43,22 @@ struct PipelineConfig
 //
 // purple_port 的 main 是這兩段的薄包裝，**與整合版呼叫同一組函式**。
 // 這是「凍結候選（34b8d97）的行為未因整合而改變」這句話的依據。
+// ［2026-10-03 註：加入 LOH 補回（PurpleLohFill.h）後，整合版**預設會補**、purple_port
+//  預設不補，兩者預設輸出不再相同。上面的等價只在 lohFill == nullptr 時成立：
+//  整合版加 --disable-purple-loh-fill，或 purple_port 不給 -loh_bed。
+//  反過來，purple_port 給 -loh_bed＋-amber_loci 時與整合版逐位元組相同（COLO829_R10_t50_n00 實測）。］
 
 InputData loadInputs(const PipelineConfig &cfg);
 
 // 染色體長度由呼叫端提供，因為兩條路徑的來源不同：
 //   purple_port  -ref_genome 的 .fai
 //   整合版        BAM header @SQ（longphase-to 已開著 BAM，不再要 -ref_genome）
+// lohFill 非 nullptr 時，在 observed regions 算完後套用 LOH 補回（PurpleLohFill.h）。
 void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
-        const ChromosomeLengths &lengths);
+        const ChromosomeLengths &lengths, const LohFillInput *lohFill = nullptr);
 
 // purple_port 的路徑：讀 .fai 取長度，載入五個 stage 檔案，然後跑完。
-void run(const PipelineConfig &cfg);
+void run(const PipelineConfig &cfg, const LohFillInput *lohFill = nullptr);
 
 }
 

@@ -55,7 +55,7 @@ PURPLE_OBJ = $(OBJDIR)/purple/PurplePipeline.o $(OBJDIR)/purple/PurpleInput.o \
              $(OBJDIR)/purple/PurpleInputAdapter.o $(OBJDIR)/purple/PurpleSegmentation.o \
              $(OBJDIR)/purple/PurpleObserved.o $(OBJDIR)/purple/PurpleFitting.o \
              $(OBJDIR)/purple/PurpleCopyNumber.o $(OBJDIR)/purple/PurpleSummary.o \
-             $(OBJDIR)/purple/PurpleWriters.o
+             $(OBJDIR)/purple/PurpleWriters.o $(OBJDIR)/purple/PurpleLohFill.o
 
 # -ffp-contract=off 是**保真度旗標，不是最佳化偏好**：它決定 NoiseFloor 的 CDF
 # 是否與凍結候選逐位元組相同（amber/Makefile 的註解：61366 組中 5988 組會因收縮而變），
