@@ -1,0 +1,4 @@
+# build 產物不進版控（AMBER 端把 amber_port 與 tools/* 執行檔進了版控，
+# 交接文件 §13 已列為待處理；COBALT 端從一開始就避免）
+*.o
+cobalt_port
