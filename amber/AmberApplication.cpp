@@ -1,14 +1,12 @@
 // AMBER 4.3 tumor-only 移植：amber_port 的進入點。
 //
-// EXP-I02（共用掃描層整合）把原本寫在此檔 main() 內的三段流程搬到 AmberPipeline.{h,cpp}：
+// 與 longphase-to 的共用掃描層整合時，原本寫在此檔 main() 內的三段流程搬到 AmberPipeline.{h,cpp}：
 //   prescan（CP-A1→CP-A2b）／BAM 掃描／postscan（CP-A3→CP-A9 與三個 stage 輸出）。
 // 本檔自此只剩「解析 CLI」與「照順序呼叫那三段」，**沒有任何計算**。
 //
 // 整合進 LongPhase-TO 的版本呼叫的是同一組 prescan/postscan，差別只在中間那段掃描
 // 由共用走訪的 amber::ContigSink 取代 amber::processBam。
-// 這是「凍結候選（91959e4 / b71e68e）的行為未因整合而改變」這句話的依據。
-//
-// 逐一對齊的行為出處：RUN-004/behaviour-contract.md
+// 因此 amber_port 的行為未因整合而改變。
 
 #include <cstdio>
 #include <iostream>
@@ -21,7 +19,7 @@
 
 namespace {
 
-// 兩個保真度驗證用的旗標**刻意不列進 usage**（owner 裁示 2026-09-02）：
+// 兩個保真度驗證用的旗標**刻意不列進 usage**：
 //
 //   -cpdump_dir <dir>     開啟 checkpoint dump。未給定時 CpDump::enabled() 為 false，
 //                         所有 dump 呼叫直接跳過，不產生檔案、不影響計算。
@@ -31,8 +29,7 @@ namespace {
 //
 // 兩者都是「怎麼驗證這份移植」的基礎設施，不是 AMBER 的功能，因此不對一般使用者呈現；
 // 但保留在程式碼裡，因為重驗的需求會實際發生（例如換用帶 Frequency 欄的 loci 檔時，
-// 見 AmberSitesFile.cpp 的 F-R1 註解）。用法見
-// research/studies/purple-port-amber-fidelity-v1/ 的各 run 執行腳本。
+// 見 AmberSitesFile.cpp 中關於 Frequency 欄的註解）。
 std::string usage(){
     return "usage: amber_port -loci <AmberGermlineSites.tsv.gz> "
            "-tumor_only_excluded_bed <tumorOnlyExcludedSnp.38.bed>\n"

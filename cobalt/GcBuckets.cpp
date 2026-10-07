@@ -6,9 +6,9 @@ namespace {
 
 // java.util.DoubleStream.average() -> DoubleSummaryStatistics
 // accept() 逐項呼叫 sumWithCompensation（Kahan 補償），getSum() 回傳 sum - sumCompensation，
-// getAverage() 再除以 count。**屬 D1 的「加總的形式」＝演算法邏輯，必須逐字重現**——
+// getAverage() 再除以 count。**加總的形式屬演算法邏輯，必須逐字重現**——
 // 與 commons-math Mean 的兩趟修正式平均同理。
-// 實測：單純 (a+b+c)/3 只在 44 格中的 42 格重現 Java；本形式 44/44 全中。
+// 改用單純的 (a+b+c)/3 時，部分 bucket 會與 Java 不同。
 double doubleStreamAverage(const double *values, int count)
 {
     double sum = 0.0;

@@ -4,9 +4,7 @@
 //
 // 對照對象是 hmftools tag amber-v4.3 的 AmberApplication.loadAmberSites()、
 // hetLociTumorOnly()、TumorAnalysis.tumorBAFAndContamination() 與 BamEvidenceReader。
-// 本階段刻意不共用 LongPhase-TO 既有的 BAM 掃描，也不接進主程式的建置，理由見研究規格 §0。
-//
-// 逐一對齊的行為出處：RUN-004/behaviour-contract.md
+// BAM 掃描與 prescan／postscan 分開，讓 longphase-to 的共用掃描層可以接手中間的掃描（見 AmberPipeline.h）。
 
 #include <algorithm>
 #include <cmath>
@@ -292,7 +290,7 @@ PostscanResult postscan(const PipelineConfig &cfg, const std::vector<PositionEvi
     //   AltSupport >= TumorOnlyMinSupport（2）
     // 之後 .sorted()——比較函式是 GenomePosition.compare，先比 ContigComparator 的
     // **rank 數值序**再比 position。rank 不是字串序：chr2 排在 chr10 之前。
-    // idx 欄即此排序後的序位，驗收規則要求逐筆相同，故排序不可用字串比較。
+    // idx 欄即此排序後的序位，必須與 Java 逐筆相同，故排序不可用字串比較。
 
     std::vector<const amber::PositionEvidence *> rawData;
     rawData.reserve(retainedEvidence.size());
@@ -410,7 +408,7 @@ PostscanResult postscan(const PipelineConfig &cfg, const std::vector<PositionEvi
         }
         lp::CpDump::write("CP-A6", "field\tvalue", rows);
 
-        // 診斷輸出（不在驗收規則內）：每個區域極大值的中間量，
+        // 診斷輸出（不參與 Java 對照）：每個區域極大值的中間量，
         // 對應 Java 以 -log_debug 印出的同一組數字。CP-A6 只有三列，
         // 中間過程若有偏離不會在該檢查點顯現，故另存這一份供日後二分。
         std::vector<lp::CpDump::Row> diag;
@@ -536,7 +534,7 @@ PostscanResult postscan(const PipelineConfig &cfg, const std::vector<PositionEvi
     // ---- stage 輸出：amber.baf.tsv.gz 與 amber.qc ----
     //
     // 對應 ResultsWriter.persistBAF / persistQC（ResultsWriter.java:38-61）。
-    // persistBAF 內另有 PCF 分段（同檔 43-51），屬 EXP-010 的範圍，此處不實作。
+    // persistBAF 內另有 PCF 分段（同檔 43-51），在下方 CP-A8／CP-A9 實作。
     if(!outputDir.empty() && cfg.writeStageOutputs){
         if(sampleId.empty()){
             throw std::runtime_error("-output_dir 需要同時給定 -tumor");

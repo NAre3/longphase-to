@@ -27,19 +27,19 @@ struct PipelineConfig
     std::string sampleId = "tumor";
     int threads = 1;
     int minMappingQuality = 10;      // cobalt_port 的 -min_quality 預設
-    // -pcf_gamma 預設。1000 為本機 ONT 實測所定，非上游預設（HMF 為 100）；
-    // 重現 RUN-C002B 的保真度比對需明確傳 -pcf_gamma 100。
+    // -pcf_gamma 預設。1000 是針對 ONT 資料選定的值，非上游預設（HMF 為 100）；
+    // 要與上游 COBALT 的結果對照時需明確傳 -pcf_gamma 100。
     double pcfGamma = 1000.0;
     bool includeDuplicates = false;
     // 三個 stage 輸出是否落檔。**預設 true**：既有呼叫端（cobalt_port、
-    // longphase-to 的 EXP-I03 整合）行為完全不變。
+    // longphase-to 的整合）行為完全不變。
     // 設 false 只在下游改以記憶體接手結果時使用（PURPLE 整合）。
     bool writeStageOutputs = true;
 };
 
 // prescan 的產出（CP-C1 → CP-C5）。postscan 需要其中四項：
 // chromosomes（決定 CP-C6 的輸出順序）、gcData、statuses，以及 partitions
-// ——partitions 只有 cobalt_port 的獨立掃描會用到，整合版不用（design.md E1）。
+// ——partitions 只有 cobalt_port 的獨立掃描會用到，整合版不用。
 struct PrescanResult
 {
     std::vector<ChromosomeSpec> chromosomes;
@@ -52,13 +52,13 @@ struct PrescanResult
 
 // ---- 流程的三段 ----
 //
-// 拆點由「BAM 掃描發生在哪裡」決定（EXP-I03）：
+// 拆點由「BAM 掃描發生在哪裡」決定，讓 longphase-to 的共用掃描層可以接手中間那段：
 //   prescan   CP-C1 → CP-C5（染色體、partition、GC profile、excluded/diploid、window status）
 //   （掃描）  cobalt_port 走 calculateReadDepths；整合版走共用掃描層的 DepthSink
 //   postscan  CP-C6 → CP-C14 與三個 stage 輸出
 //
 // cobalt_port 的 main 是這三段的薄包裝，**與整合版呼叫同一組函式**。
-// 這是「凍結候選（b71e68e）的行為未因整合而改變」這句話的依據。
+// 因此 cobalt_port 的行為未因整合而改變。
 PrescanResult prescan(const PipelineConfig &cfg);
 
 // postscan 的產出。這兩項是 PURPLE 需要的兩個 stage 輸出的記憶體來源：

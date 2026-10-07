@@ -13,8 +13,8 @@ namespace {
 
 // 對應 Java DecimalFormat("0.0000")。
 // Java 的 DecimalFormat 預設為 HALF_EVEN；glibc 的 printf %.4f 亦以現行捨入模式
-// （round-to-nearest-even）對二進位值做正確捨入。兩者在本研究的資料上是否一致
-// 由「與參考輸出逐值比對」實測確認，不以推論代替。
+// （round-to-nearest-even）對二進位值做正確捨入。兩者是否一致
+// 由「與 Java 參考輸出逐值比對」確認，不以推論代替。
 std::string format4(double value)
 {
     char buffer[64];

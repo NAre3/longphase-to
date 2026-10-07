@@ -6,8 +6,8 @@
 
 // 本檔對應 commons-math3 3.6.1 的 Beta.java 與 ContinuedFraction.java。
 //
-// 2026-09-06：原本連 FastMath 與 Gamma 的高精度 logBeta 機制一併照抄，
-// 目的是與 Java 逐位元相同。既然邏輯等價即可，改為：
+// 不照抄 FastMath 與 Gamma 的高精度 logBeta 機制（那只是為了與 Java 逐位元相同）。
+// 邏輯等價即可，因此：
 //   - log / log1p / exp  → 標準庫
 //   - logBeta(p,q)       → lgamma(p) + lgamma(q) - lgamma(p+q)
 //     （commons-math 的 deltaMinusDeltaSum / invGamma1pm1 / logGamma1p 機制整組移除）
@@ -27,7 +27,7 @@ inline bool nearZero(double value, double small)
 }
 
 // Beta.logBeta(p, q)。commons-math 為了大參數下的精度用了一整套 delta 修正；
-// 此處採用等價的 lgamma 形式，差異為 ulp 級（實測見 math_provenance/README.md）。
+// 此處採用等價的 lgamma 形式，差異為 ulp 級。
 double logBeta(double p, double q)
 {
     if(std::isnan(p) || std::isnan(q) || p <= 0.0 || q <= 0.0){

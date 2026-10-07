@@ -40,7 +40,7 @@ private:
     std::vector<GcPail> mBuckets;
 };
 
-// GcBucketStatistics.java。**保留原始的 off-by-one**（見 behaviour-contract.md §2.1）。
+// GcBucketStatistics.java。**保留原始的 off-by-one**（與 Java 一致）。
 class GcBucketStatistics
 {
 public:

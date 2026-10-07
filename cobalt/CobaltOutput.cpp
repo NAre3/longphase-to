@@ -38,7 +38,7 @@ std::string decimalFormat4(double v)
 
 std::vector<CobaltRatio> collateResults(const std::vector<BamRatio> &tumorRatios)
 {
-    // ResultsCollator.tumorOnlyCobaltRatio：四個 reference 欄位固定 -1.0（G14）
+    // ResultsCollator.tumorOnlyCobaltRatio：四個 reference 欄位固定 -1.0
     std::vector<CobaltRatio> out;
     out.reserve(tumorRatios.size());
     for(const BamRatio &r : tumorRatios)

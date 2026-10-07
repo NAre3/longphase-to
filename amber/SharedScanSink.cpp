@@ -27,13 +27,12 @@ int ContigSink::maxTaskEnd() const
 
 void ContigSink::consume(const bam1_t *record)
 {
-    // 共用層零過濾（RUN-I001 的結論），AMBER 的 slicer filter 在此消費者內執行。
+    // 共用層零過濾，AMBER 的 slicer filter 在此消費者內執行。
     if(!passesSlicerFilters(record)){
         return;
     }
 
-    // recordsConsumed：**刻意不重現**獨立執行下的 per-region 造訪次數語義（design.md D3，
-    // 使用者 2026-09-15 裁示）。此處計的是「通過 slicer filter 的 read 數」，每條 read 一次。
+    // recordsConsumed：**刻意不重現**獨立執行下的 per-region 造訪次數語義。此處計的是「通過 slicer filter 的 read 數」，每條 read 一次。
     // 該欄位的唯一消費者是一行 stderr 日誌，不進任何 checkpoint 或 stage 輸出。
     ++mStats.recordsConsumed;
 
@@ -49,7 +48,7 @@ void ContigSink::consume(const bam1_t *record)
         ++mFirstCandidate;
     }
 
-    // 分派給**所有**重疊的 task（D2）。task 依 start 遞增，故第一個 start > alignmentEnd
+    // 分派給**所有**重疊的 task。task 依 start 遞增，故第一個 start > alignmentEnd
     // 之後的都不重疊，可提前收手。
     for(std::size_t index = mFirstCandidate; index < taskCount; ++index){
         RegionTask &task = mBegin[index];

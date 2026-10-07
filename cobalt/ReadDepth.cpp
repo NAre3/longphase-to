@@ -60,7 +60,7 @@ std::vector<AlignmentBlock> alignmentBlocks(const bam1_t *b)
     return blocks;
 }
 
-// BamSlicerFilter.passesFilters（位元組碼逐條，見 behaviour-contract.md §1.2）
+// BamSlicerFilter.passesFilters（依位元組碼逐條對照）
 inline bool passesFilters(const bam1_t *b, int minMappingQuality)
 {
     if(b->core.qual < static_cast<unsigned>(minMappingQuality)){ return false; }   // 嚴格 <
@@ -88,7 +88,7 @@ void ReadDepthAccumulator::addChromosome(const std::string &chromosome, int chro
     {
         throw std::runtime_error("duplicate chromosome in accumulator: " + chromosome);   // Validate.isTrue
     }
-    const int numWindows = chromosomeLength / mWindowSize;                                 // 整數除法（G10）
+    const int numWindows = chromosomeLength / mWindowSize;                                 // 整數除法
     auto c = std::make_unique<ChromosomeWindowCounts>();
     c->numWindows = numWindows;
     c->baseCounts = std::make_unique<std::atomic<int>[]>(static_cast<std::size_t>(numWindows));
@@ -131,7 +131,7 @@ void ReadDepthAccumulator::addReadAlignmentToCounts(const std::string &chromosom
         const int windowStart = getGenomePosition(windowIndex);
 
         if(windowStart >= genomeStart + alignmentLength){ break; }    // 順序：先判這一條
-        if(windowIndex >= counts->numWindows){ break; }               // 再判染色體尾端（G10）
+        if(windowIndex >= counts->numWindows){ break; }               // 再判染色體尾端
 
         const int startOffset = std::max(0, windowStart - genomeStart);
         const int endOffset = std::max(0, genomeStart + alignmentLength - windowStart - mWindowSize);
@@ -163,21 +163,21 @@ std::vector<DepthReading> ReadDepthAccumulator::getChromosomeReadDepths(const st
         const double basesCount = counts->baseCounts[static_cast<std::size_t>(windowIndex)]
                                       .load(std::memory_order_relaxed);
         const double depth = basesCount / mWindowSize;
-        // basesCount == 0 時為 NaN；保留「先算出 NaN 再被覆蓋」的形式（見對照表 §5）
+        // basesCount == 0 時為 NaN；保留「先算出 NaN 再被覆蓋」的形式（與 Java 一致）
         const double gcContent = counts->gcCounts[static_cast<std::size_t>(windowIndex)]
                                      .load(std::memory_order_relaxed) / basesCount;
         DepthReading r;
         r.chromosome = chromosome;
         r.startPosition = getGenomePosition(windowIndex);
         r.readDepth = depth;
-        r.readGcContent = (depth == 0) ? 0 : gcContent;    // DepthReading 建構子（G11）
+        r.readGcContent = (depth == 0) ? 0 : gcContent;    // DepthReading 建構子
         out.push_back(std::move(r));
     }
     return out;
 }
 
-// 共用掃描層（EXP-I03）。函式體就是 calculateReadDepths 內層 while 迴圈的那一段，
-// **逐字相同**，只是把 region 固定成 {chromosome, 1, contigLength}（design.md E1）。
+// 共用掃描層。函式體就是 calculateReadDepths 內層 while 迴圈的那一段，
+// **逐字相同**，只是把 region 固定成 {chromosome, 1, contigLength}。
 // 兩條路徑因此走同一份過濾與裁切邏輯。
 DepthSink::DepthSink(ReadDepthAccumulator &accumulator, std::string chromosome, int contigLength,
                      int minMappingQuality, bool includeDuplicates)

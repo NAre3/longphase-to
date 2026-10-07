@@ -278,7 +278,7 @@ namespace opt
 
     static int somaticConnectAdjacent = 6;
 
-    // ---- AMBER 整合（EXP-I02）----
+    // ---- AMBER 整合 ----
     static std::string amberLoci="";
     static std::string amberExcludedBed="";
     static std::string amberOutputDir="";
@@ -287,7 +287,7 @@ namespace opt
     static int amberMinMapQuality=50;
     static std::string amberCpDumpDir="";
 
-    // ---- COBALT 整合（EXP-I03）----
+    // ---- COBALT 整合 ----
     static std::string cobaltGcProfile="";
     static std::string cobaltDiploidBed="";
     static std::string cobaltExcludedRegions="";
@@ -477,9 +477,9 @@ void PhasingOptions(int argc, char** argv)
         die = true;
     }
 
-    // ---- AMBER 整合的參數檢查（D-I2）----
+    // ---- AMBER 整合的參數檢查 ----
     // 兩個必填旗標「全給」或「全不給」，不接受半套：半套會讓 AMBER 靜默不啟用，
-    // 而使用者以為啟用了——那正是 F3 對照基準會被搞混的情形。
+    // 而使用者以為啟用了，結果卻與預期不同。
     if(opt::amberLoci.empty() != opt::amberExcludedBed.empty()){
         std::cerr << SUBPROGRAM
                   << ": --amber-loci and --amber-excluded-bed must be given together.\n";
@@ -528,7 +528,7 @@ void PhasingOptions(int argc, char** argv)
         }
     }
 
-    // ---- COBALT 整合的參數檢查（EXP-I03，沿用 D-I2 的規則）----
+    // ---- COBALT 整合的參數檢查（規則同 AMBER）----
     if(opt::cobaltGcProfile.empty() != opt::cobaltExcludedRegions.empty()){
         std::cerr << SUBPROGRAM
                   << ": --cobalt-gc-profile and --cobalt-excluded-regions must be given together.\n";

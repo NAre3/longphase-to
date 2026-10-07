@@ -13,9 +13,8 @@
 // 對照原始碼：github.com/apache/commons-math tag MATH_3_6_1，
 // 以及 amber_v4.3.jar 內 shade 的同版 bytecode。
 //
-// **不再追求與 Java 逐位元相同**——見 2026-09-06 的實測：改用標準庫後 CDF 與 Java
-// 有 ulp 級的差異，但 30 組樣本的 noiseFloor 與其下游輸出完全不變。
-// 詳見 research/studies/purple-port-amber-fidelity-v1/math_provenance/README.md。
+// **不追求與 Java 逐位元相同**：改用標準庫後 CDF 與 Java 有 ulp 級的差異，
+// 但在驗證過的樣本上 noiseFloor 與其下游輸出完全不變。
 
 namespace amber { namespace cm3 {
 

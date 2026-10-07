@@ -16,8 +16,8 @@ namespace amber {
 constexpr double BAF_SEGMENTATION_GAMMA = 100.0;
 
 // PerArmSegmenter 的 uniform-penalty 門檻。AMBER 4.3 呼叫端使用的值（見 CP-A8 的
-// uniformPenaltyThreshold 欄）。本研究的 dev 樣本 totalCount = 701544 遠高於此，
-// 走 per-arm-gamma 分支；uniform 分支未被驗證（spec U5）。
+// uniformPenaltyThreshold 欄）。開發時使用的全基因體樣本 totalCount 都遠高於此，
+// 走 per-arm-gamma 分支；uniform 分支未實作（見 Segmentation.cpp）。
 constexpr int UNIFORM_PENALTY_THRESHOLD = 100000;
 
 struct PcfSegment
@@ -56,7 +56,7 @@ SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs, int threads = 
 // 對應 SegmentsFile.write（chromosome 加 chr 前綴、MeanRatio 以 DecimalFormat("#.####") 格式化）
 void writeSegmentsFile(const std::string &path, const SegmentationResult &result);
 
-// CP-A8 / CP-A9 的 dump。與 Java 端 patch_segmenter.py 插入的位置對應。
+// CP-A8 / CP-A9 的 dump。與 Java 端插入 dump 的位置對應。
 void writeSegmentationCheckpoints(const SegmentationResult &result);
 
 // Runmed 與 Gamma penalty 已移到 common/（namespace lp）；此處轉出以保持既有呼叫端不變。

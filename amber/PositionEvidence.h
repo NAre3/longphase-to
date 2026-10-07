@@ -6,7 +6,7 @@
 namespace amber {
 
 // 對應 amber-v4.3 的 PositionEvidence（PositionEvidence.java:12-41）。
-// 七個計數器的語義見 behaviour-contract.md §2.1。
+// 七個計數器的語義見 BamEvidenceReader.cpp 的 addEvidence。
 struct PositionEvidence
 {
     std::string chromosome;

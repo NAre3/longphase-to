@@ -11,17 +11,17 @@
 
 namespace amber {
 
-// 共用掃描層（EXP-I02）的 AMBER 消費者。
+// 共用掃描層的 AMBER 消費者。
 //
-// 設計依據 RUN-I002/design.md 的 D1/D2/D9：
-//   D1 AMBER 的 RegionTask 只覆蓋 86.1% 基因體，不能反過來當共用層 ⇒ read 由外部送進來。
-//   D2 獨立執行下一條 read 會被**所有與它重疊的 region** 各處理一次，
+// 設計要點：
+//   - AMBER 的 RegionTask 只覆蓋部分基因體，不能反過來當共用層 ⇒ read 由外部送進來。
+//   - 獨立執行下一條 read 會被**所有與它重疊的 region** 各處理一次，
 //      因此本 sink 也必須分派給所有重疊的 task，否則 per-locus 計數會少算。
-//   D9 一個 sink 只服務**一條染色體**。跨染色體共用單一游標會破壞單調性。
+//   - 一個 sink 只服務**一條染色體**。跨染色體共用單一游標會破壞單調性。
 //
 // 執行緒模型：每條染色體一個 sink、一個執行緒（`PhasingProcess.cpp` 的 omp 迴圈）。
 // RegionTask 對位點是一個分割且不跨染色體，故不同 sink 寫入的 PositionEvidence 互斥，
-// 不需要任何鎖。見 design.md「為什麼染色體平行對 AMBER 的 per-locus 計數仍然安全」。
+// 不需要任何鎖。
 class ContigSink
 {
 public:
@@ -33,7 +33,7 @@ public:
 
     const BamScanStats &stats() const { return mStats; }
 
-    // 此 contig 上最大的 task.end。共用走訪的右界取 max(lastSNPpos, 這個值) 即足夠（D9）。
+    // 此 contig 上最大的 task.end。共用走訪的右界取 max(lastSNPpos, 這個值) 即足夠。
     int maxTaskEnd() const;
 
 private:

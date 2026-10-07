@@ -49,13 +49,13 @@ struct BamScanStats
 // threads > 1 時以 region 為單位分工。這在結構上是安全的：region 對位點是一個分割
 // （populateTaskQueue 把每個位點恰好放進一個 region），因此不同執行緒寫入的
 // PositionEvidence 互不重疊；每個 region 內部的 read 走訪順序仍由 htslib 的
-// iterator 決定，與執行緒數無關。**但這是推論，須以實測確認**——
-// Java 端的對應結論由 EXP-002 實測建立（threads 1 vs 8，12 個 checkpoint 逐位元組相同）。
+// iterator 決定，與執行緒數無關。**但這是推論**——Java 端的對應結論已由不同執行緒數的
+// checkpoint 逐位元組比對建立，C++ 端尚未另行比對。
 BamScanStats processBam(
         const std::string &bamFile, std::vector<RegionTask> &tasks,
         int minMappingQuality, int minBaseQuality, int threads);
 
-// ---- 共用掃描層（EXP-I02）用的兩個入口 ----
+// ---- 共用掃描層用的兩個入口 ----
 //
 // 整合版不自己開 BAM、不自己建 iterator，read 由 LongPhase-TO 的線性走訪送進來，
 // 因此需要把 processBam 內部的兩段邏輯轉出來給 ContigSink 用。
@@ -63,7 +63,7 @@ BamScanStats processBam(
 // 走同一份程式碼」這句話的依據。
 
 // 對應 BamSlicerFilter.passesFilters：0x4 / 0x100 / 0x800 / 0x400 任一命中即排除。
-// **不含 MAPQ**——AMBER 的 MAPQ 是在 addEvidence 內計數而非丟棄（RUN-I001 行為對照表）。
+// **不含 MAPQ**——AMBER 的 MAPQ 是在 addEvidence 內計數而非丟棄。
 bool passesSlicerFilters(const bam1_t *record);
 
 // 對應 RegionTask.processRecord。task.currentIndex 單調前進。

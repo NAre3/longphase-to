@@ -9,7 +9,7 @@
 
 namespace cobalt {
 
-// CobaltRatio.java 的 tumor-only 版本（四個 reference 欄位固定 -1.0，G14）
+// CobaltRatio.java 的 tumor-only 版本（四個 reference 欄位固定 -1.0）
 struct CobaltRatio
 {
     std::string chromosome;      // 帶 chr 前綴（versionedChromosome）

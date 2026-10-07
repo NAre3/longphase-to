@@ -298,7 +298,7 @@ const ImmuneRegion IMMUNE_REGIONS_V38[] = {
 
 // RegionsFilter.java:18-52 的狀態式掃描：依染色體分組、組內排序，
 // 走訪輸入時只檢查「第一個 end >= position 的區間」。輸入需依 (染色體, position) 遞增，
-// CP-A5 的 rawData 正是如此（EXP-005 已驗證其排序）。
+// CP-A5 的 rawData 正是如此（已依 genomePositionLess 排序）。
 // 刻意不改成「檢查所有區間」——雖然在不重疊的區間下等價，但那是額外假設。
 std::vector<const PositionEvidence *> filterOutImmuneRegions(const std::vector<PositionEvidence> &evidence)
 {
@@ -430,7 +430,7 @@ NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence
     // → baseline 平均為 0，且每個 peak 的兩個 band 平均亦為 0，
     //   PeakGnomadFrequenciesChecker 因此退化為「兩個 band 皆非空」（見下方）。
     //
-    // **已知限制（2026-09-02 程式碼審查 F-R1）**：此處是把「頻率全為 0」下的
+    // **已知限制**：此處是把「頻率全為 0」下的
     // 退化行為寫死，而非移植完整檢查。Java 的 checkGnomadFrequencies 有三個子句
     // （jar bytecode 156-217）：
     //     getN()==0 任一為真         → reject
@@ -439,8 +439,7 @@ NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence
     // 本檔只實作第一句，門檻 0.15 不存在於此移植中。前提「頻率全為 0」沒有被
     // 任何程式碼強制（AmberSitesFile 仍會讀 Frequency 欄，只是下游丟棄）。
     //
-    // 已知 owner 判定（2026-09-02）：不加防呆拋錯，僅註記。見 AmberSitesFile.cpp
-    // 同一編號的註解，與 research/studies/purple-port-amber-fidelity-v1/CODE-REVIEW-fcb15ca.md
+    // 已知限制：不加防呆拋錯，僅註記。見 AmberSitesFile.cpp 中關於 Frequency 欄的註解。
     result.baselineHetGnomadFrequency = 0.0;
 
     const auto chrArmClassifier = [](const PositionEvidence &pe){ return chrArmOf(pe); };

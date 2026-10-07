@@ -50,8 +50,7 @@ static double median(std::vector<double> values)
 }
 
 // Doubles.mean（Doubles.java:75-88）：依序累加後除以長度。
-// 累加順序影響最後一位。【2026-09-06 更正理由】原註寫「必須照抄順序」，那是追求與 Java
-// 逐位元相同時的說法；現行理由是本程式自己的輸出要穩定——這個值會經 DecimalFormat("#.####")
+// 累加順序影響最後一位。保留這個順序的理由不是與 Java 逐位元相同，而是本程式自己的輸出要穩定——這個值會經 DecimalFormat("#.####")
 // 寫進 .pcf 的 MeanRatio，由 PURPLE 讀取。此迴圈與 std::accumulate 等價，改寫無益亦無害；
 // 不要改成 pairwise 或 Kahan 求和，那會讓輸出隨實作細節變動。
 double mean(const double *values, std::size_t count)
@@ -320,8 +319,8 @@ Fit segment(const std::vector<double> &y, double segmentPenalty, std::vector<dou
             // Math.round(double) 的規格是 (long) floor(x + 0.5)——**half-up，不是
             // half-away-from-zero**。負值的正半點上兩者不同（Math.round(-2.5) = -2，
             // std::llround(-2.5) = -3），故此處必須寫成 floor(x + 0.5)。
-            // 本樣本 14,726 段中有 11,088 段的 pcfMean 為負，負值路徑被大量走到，
-            // 但**恰落在半點的情形未被走到**（見 branch_coverage.tsv）。
+            // 開發時使用的樣本中，負值路徑被大量走到，
+            // 但**恰落在半點的情形未被走到**。
             double sum = 0.0;
             for(int i = start; i <= endpoint; ++i){
                 sum += y[static_cast<std::size_t>(i)];

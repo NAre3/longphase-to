@@ -6,7 +6,7 @@
 
 namespace cobalt {
 
-// ExcludedRegionsFile：jar 內部資源 /regions/excluded_regions_v38.tsv（G8）。
+// ExcludedRegionsFile：jar 內部資源 /regions/excluded_regions_v38.tsv。
 // 染色體名無 chr 前綴；順序 = 檔案順序。
 struct ExcludedRegion
 {

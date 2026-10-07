@@ -50,7 +50,7 @@ WindowStatuses buildWindowStatuses(const GcProfileData &gcData,
         });
     }
 
-    // ---- findIntersections：帶狀態的單向掃描（見 behaviour-contract.md）----
+    // ---- findIntersections：帶狀態的單向掃描 ----
     // 以 (染色體短名, gcProfile.start) 代表被排除的 window；每條染色體的 start 唯一，
     // 與 Java 端 GCProfile 的值相等判定等價。
     std::set<std::pair<std::string, int>> toExclude;

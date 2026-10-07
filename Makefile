@@ -3,22 +3,22 @@ CXX      = g++
 AR       = ar
 AWK      = awk
 CFLAGS   = -g -Wall -O2 -pedantic -std=c99 -D_XOPEN_SOURCE=600
-# EXP-I02：由 -std=c++11 提升到 c++17。
+# 由 -std=c++11 提升到 c++17。
 # 理由：amber/ 的來源需要 C++14 以上（BamEvidenceReader.cpp 的 RegionTask aggregate init
-# 帶 default member initializer）。實測主程式六個 source 在 c++17 下無新警告、無錯誤。
+# 帶 default member initializer）。主程式的 source 在 c++17 下無新警告、無錯誤。
 CPPFLAGS = -std=c++17 -g -Wall -O3 -fopenmp
 LDFLAGS  =
 LIBS     =
 
 OBJ = Haplotag.o ParsingBam.o Util.o HaplotagProcess.o PhasingProcess.o Phasing.o PhasingGraph.o MethylXgbModel.o MethylXgbFeatureExtraction.o ModCall.o ModCallParsingBam.o ModCallProcess.o main.o $(AMBER_OBJ)
 
-# ---- AMBER 整合（EXP-I02）----
+# ---- AMBER 整合 ----
 #
 # amber/AmberApplication.o **不在此列**：那是 amber_port 的 main()，
 # 連進 longphase-to 會與 main.o 的 main() 撞名。整合版用的是 AmberPipeline 的
 # prescan/postscan——與 amber_port 呼叫的同一組函式。
 # **物件檔一律放進 build/obj/，不放回原始碼目錄。**
-# 理由（EXP-I03 發現）：amber/Makefile 與 cobalt/Makefile 用 -O2 編到 amber/*.o、
+# 理由：amber/Makefile 與 cobalt/Makefile 用 -O2 編到 amber/*.o、
 # cobalt/*.o，主 build 用 -O3 -g 編到同一批路徑。兩者互相覆蓋，且 make 看到 .o
 # 是新的就不重編——於是 amber_port / cobalt_port 究竟用哪組旗語建成，
 # 取決於「誰後跑」。保真度關鍵的 -ffp-contract=off 兩邊都有，所以輸出不受影響，
@@ -58,10 +58,10 @@ PURPLE_OBJ = $(OBJDIR)/purple/PurplePipeline.o $(OBJDIR)/purple/PurpleInput.o \
              $(OBJDIR)/purple/PurpleWriters.o $(OBJDIR)/purple/PurpleLohFill.o
 
 # -ffp-contract=off 是**保真度旗標，不是最佳化偏好**：它決定 NoiseFloor 的 CDF
-# 是否與凍結候選逐位元組相同（amber/Makefile 的註解：61366 組中 5988 組會因收縮而變），
+# 是否與獨立執行的 amber_port 逐位元組相同（FMA 收縮會改變部分 CDF 值，見 amber/Makefile），
 # 而 amber.baf.pcf 直接由那些數字產生。
 # 只掛在 amber/ 與 common/ 的物件上，**不全域套用**——全域套用會改動 LongPhase-TO
-# 自身的浮點行為，那會直接威脅 F3。
+# 自身的浮點行為，讓不啟用 ACP 時的輸出與整合前不同。
 AMBER_CXXFLAGS = -ffp-contract=off
 DEPDIR = build/deps
 DEPS = $(OBJ:%.o=$(DEPDIR)/%.d)
@@ -115,7 +115,7 @@ $(OBJDIR)/cobalt/%.o: cobalt/%.cpp | $(DEPDIR)
 	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/cobalt/$*.d -MT $@ -o $@ -c $<
 
 # purple/ 的物件同樣需要 -ffp-contract=off：purple/Makefile:3 已對 purple_port
-# 掛上同一旗標，兩個建置必須一致，否則整合版與凍結候選的浮點行為可能分岔。
+# 掛上同一旗標，兩個建置必須一致，否則整合版與 purple_port 的浮點行為可能分岔。
 $(OBJDIR)/purple/%.o: purple/%.cpp | $(DEPDIR)
 	mkdir -p $(OBJDIR)/purple $(DEPDIR)/purple
 	$(CXX) $(ALL_CPPFLAGS) $(AMBER_CXXFLAGS) -MMD -MP -MF $(DEPDIR)/purple/$*.d -MT $@ -o $@ -c $<

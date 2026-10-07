@@ -27,7 +27,7 @@ struct PipelineConfig
     int minBaseQuality = DEFAULT_MIN_BASE_QUALITY;
     int minMappingQuality = DEFAULT_MIN_MAPPING_QUALITY;
     // 三個 stage 輸出是否落檔。**預設 true**：既有呼叫端（amber_port、
-    // longphase-to 的 EXP-I02 整合）行為完全不變。
+    // longphase-to 的整合）行為完全不變。
     // 設 false 只在下游改以記憶體接手結果時使用（PURPLE 整合），
     // 此時 postscan 的回傳值即為原本要寫進檔案的同一份資料。
     bool writeStageOutputs = true;
@@ -46,13 +46,13 @@ struct PrescanResult
 
 // ---- 流程的三段 ----
 //
-// 拆點由「BAM 掃描發生在哪裡」決定，這是 EXP-I02 的整合要求：
+// 拆點由「BAM 掃描發生在哪裡」決定，讓 longphase-to 的共用掃描層可以接手中間那段：
 //   prescan   CP-A1 → CP-A2 → CP-A2b（site 載入、blacklist、region 切分）—— 掃描之前
 //   （掃描）  amber_port 走 processBam；整合版走共用掃描層的 ContigSink
 //   postscan  CP-A3 → CP-A9 與三個 stage 輸出 —— 掃描之後
 //
 // amber_port 的 main 是這三段的薄包裝，**與整合版呼叫同一組函式**。
-// 這是「凍結候選的行為未因整合而改變」這句話的依據。
+// 因此 amber_port 的行為未因整合而改變。
 PrescanResult prescan(const PipelineConfig &cfg);
 
 // postscan 的產出。這三項就是三個 stage 輸出的記憶體來源：

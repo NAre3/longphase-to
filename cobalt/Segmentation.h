@@ -21,7 +21,7 @@ struct PcfSegmentOut
 };
 
 // DataForSegmentation：**兩個陣列**（COBALT 的 valuesForSegmentation 與 rawValues 不同，
-// 這正是 G24f 指出 AMBER 的單一 values 陣列無法表達的地方）
+// 這正是 AMBER 的單一 values 陣列無法表達的地方）
 struct ArmData
 {
     std::string armId;             // 例如 "1_P"（dump 用 "ChrArm[chromosome=1, arm=P]"）
@@ -50,10 +50,10 @@ struct SegmentationResult
 };
 
 // threads：每臂一個工作單位。各臂獨立，輸出順序由 result.arms 決定而非完成順序，
-// 故結果與單執行緒逐位元組相同（由 -threads 1/16/16 三次執行對凍結輸出驗證）。
+// 故結果與單執行緒逐位元組相同（已比對不同 thread 數的輸出）。
 SegmentationResult segmentRatios(const std::vector<CobaltRatio> &ratios, double gamma, int threads);
 
-// SegmentsFile.write：表頭四欄 Chromosome/Start/End/MeanRatio（無 n.probes，findings F1）
+// SegmentsFile.write：表頭四欄 Chromosome/Start/End/MeanRatio（無 n.probes）
 void writeSegmentsFile(const std::string &path, const SegmentationResult &result);
 
 }

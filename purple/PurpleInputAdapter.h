@@ -27,10 +27,10 @@ namespace purple {
 //   amber/AmberOutput.cpp:30   formatOrZero -> 非有限值寫字面 "0"
 //   cobalt/CobaltOutput.cpp:17 decimalFormat4 -> "%.4f" 去尾零，NaN 寫 "NaN"，"-0" 正規化成 "0"
 // 而 PURPLE 以 std::stod 讀回（purple/PurpleInput.cpp:92、113-125）。
-// 亦即**凍結候選 34b8d97 所驗證的那組輸入，是量化過的值**。
+// 亦即**purple_port 經由檔案讀到的輸入，是量化過的值**。
 //
-// 記憶體交接若直接傳全精度 double，PURPLE 拿到的輸入就與凍結候選不同，
-// 結果會漂移，而 RUN-P009 的 174/174 證據也不再適用。
+// 記憶體交接若直接傳全精度 double，PURPLE 拿到的輸入就與 purple_port 不同，
+// 結果會漂移，對 purple_port 做過的 Java 對照驗證也就不再適用。
 // 因此這裡以「格式化成同一個字串再 stod 回來」重現**完全相同的運算**——
 // 不是近似，是同一個 double -> 十進位字串 -> double 的來回，
 // 所以兩條路徑位元相同是由構造保證的，不是靠比對觀察到的。

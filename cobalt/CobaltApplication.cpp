@@ -1,12 +1,12 @@
 // COBALT 移植：cobalt_port 的進入點。
 //
-// EXP-I03（共用掃描層整合）把原本寫在此檔 main() 內的三段流程搬到 CobaltPipeline.{h,cpp}：
+// 與 longphase-to 的共用掃描層整合時，原本寫在此檔 main() 內的三段流程搬到 CobaltPipeline.{h,cpp}：
 //   prescan（CP-C1→CP-C5）／BAM 掃描／postscan（CP-C6→CP-C14 與三個 stage 輸出）。
 // 本檔自此只剩「解析 CLI」與「照順序呼叫那三段」，**沒有任何計算**。
 //
 // 整合進 LongPhase-TO 的版本呼叫的是同一組 prescan/postscan，差別只在中間那段掃描
 // 由共用走訪的 cobalt::DepthSink 取代 cobalt::calculateReadDepths。
-// 這是「凍結候選（b71e68e）的行為未因整合而改變」這句話的依據。
+// 因此 cobalt_port 的行為未因整合而改變。
 
 #include <cstdio>
 #include <cstdlib>

@@ -17,8 +17,7 @@ namespace purple {
 // PURPLE 因此失去排除低純度解的證據。這裡在 AMBER 自己也缺資料的段上，
 // 把 bafCount 補成「AMBER 沒篩掉的話應有的位點數」、observedBAF 設為 1.0。
 //
-// 規則與驗證見 research_log/2026-09-30/LOH補回_設計與40組驗證.md §3；
-// 逐項對齊該處的 Python 重建（purple_tdf_diagnosis_2026-09-23/scripts/eval_fill.py）：
+// 規則：
 //   ok   = 體染色體 && DIPLOID && 0 <= observedTumorRatio <= 3（不要求 bafCount > 0）
 //   cov  = 段與 LOH 區間的重疊長度 / 段長（兩者都當閉區間）
 //   pan  = raw germline site panel 落在 [start, end] 的位置數（不套 tumor-only blacklist）

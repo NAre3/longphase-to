@@ -10,7 +10,7 @@ namespace lp {
 
 // htsjdk SAMRecord 的座標轉換在 C++ 端的等價實作。
 //
-// 依據：RUN-004/behaviour-contract.md §3、§4（含 jar bytecode 交叉驗證）。
+// 依據：htsjdk 原始碼，並與 jar bytecode 交叉核對。
 // 全部對外座標一律採 htsjdk 的約定：**1-based**，read position 含 soft clip、不含 hard clip，
 // 亦即 read position 1 對應 bam_get_seq() 的索引 0。
 //
@@ -37,7 +37,6 @@ public:
     //   alignmentStart + Cigar.getReferenceLength() - 1
     // 刻意**不使用 htslib 的 bam_endpos()**：bam_endpos 在 reference length 為 0 時
     // 強制 rlen = 1，會得到 alignmentStart，而 htsjdk 會得到 alignmentStart - 1。
-    // 見 behaviour-contract.md §4.3。
     int alignmentEnd() const { return mAlignmentEnd; }
 
     int mappingQuality() const { return mMappingQuality; }
@@ -57,7 +56,7 @@ public:
     char baseAt(int readPosition) const;
 
     // 1-based read position → binary phred。對應 getBaseQualities()[readPosition - 1]。
-    // QUAL 與 SEQ 同索引基準（behaviour-contract.md §3.6）。
+    // QUAL 與 SEQ 同索引基準。
     int baseQualityAt(int readPosition) const;
 
 private:

@@ -19,7 +19,7 @@ std::string value(int argc, char **argv, const char *flag){
 
 // purple_port 的 main：引數解析 + PurplePipeline::run 的薄包裝。
 // 流程主體在 PurplePipeline.cpp，與 longphase-to 整合版呼叫同一組函式。
-// ［2026-10-03 註：整合版預設開啟 LOH 補回；purple_port 只在給 -loh_bed 時補，見 PurplePipeline.h。］
+// 注意：整合版預設開啟 LOH 補回；purple_port 只在給 -loh_bed 時補，見 PurplePipeline.h。
 int main(int argc, char **argv){
     try{
         purple::PipelineConfig cfg;

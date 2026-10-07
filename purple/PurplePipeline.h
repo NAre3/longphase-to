@@ -27,7 +27,7 @@ struct PipelineConfig
 // ---- 為什麼這裡沒有 prescan / postscan ----
 //
 // AmberPipeline.h 與 CobaltPipeline.h 都拆成 prescan/(掃描)/postscan，拆點由
-// 「BAM 掃描發生在哪裡」決定（EXP-I02、EXP-I03）。PURPLE **不讀 BAM**，
+// 「BAM 掃描發生在哪裡」決定。PURPLE **不讀 BAM**，
 // 它消費的是 AMBER/COBALT 的 stage 輸出，流程中沒有可共用的掃描，
 // 因此沿用那個兩段式形狀只會是東施效顰。
 //
@@ -38,15 +38,15 @@ struct PipelineConfig
 // 整合版會改以 AMBER/COBALT 的記憶體結果組出 InputData 後直接呼叫
 // runFromInputs，省掉檔案來回。**組 InputData 時必須套用與寫檔端相同的
 // 四位小數捨入**（CobaltOutput.cpp 的 decimalFormat4、AmberOutput.cpp 的
-// "%.4f"），否則 PURPLE 拿到的輸入精度與凍結候選不同，結果會漂。
+// "%.4f"），否則 PURPLE 拿到的輸入精度與 purple_port 不同，結果會漂。
 // 見 PurpleInputAdapter 的說明。
 //
 // purple_port 的 main 是這兩段的薄包裝，**與整合版呼叫同一組函式**。
-// 這是「凍結候選（34b8d97）的行為未因整合而改變」這句話的依據。
-// ［2026-10-03 註：加入 LOH 補回（PurpleLohFill.h）後，整合版**預設會補**、purple_port
-//  預設不補，兩者預設輸出不再相同。上面的等價只在 lohFill == nullptr 時成立：
-//  整合版加 --disable-purple-loh-fill，或 purple_port 不給 -loh_bed。
-//  反過來，purple_port 給 -loh_bed＋-amber_loci 時與整合版逐位元組相同（COLO829_R10_t50_n00 實測）。］
+// 因此 purple_port 的行為未因整合而改變。
+// 注意：加入 LOH 補回（PurpleLohFill.h）後，整合版**預設會補**、purple_port
+// 預設不補，兩者預設輸出不同。上面的等價只在 lohFill == nullptr 時成立：
+// 整合版加 --disable-purple-loh-fill，或 purple_port 不給 -loh_bed。
+// 反過來，purple_port 給 -loh_bed＋-amber_loci 時與整合版逐位元組相同（已比對）。
 
 InputData loadInputs(const PipelineConfig &cfg);
 

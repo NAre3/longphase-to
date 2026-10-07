@@ -21,7 +21,7 @@ namespace {
 //   rawValues[i] = v            （在 floor 判斷之前）
 //   v < 0.001 -> -9.965784      （硬編碼 floor，嚴格小於）
 //   否則      -> (float) FastMath.log(2, v) = (float)(log(v)/log(2))
-// **(float) 轉型屬演算法邏輯必須保留**（G4）——它是 DECISION D2 的成因。
+// **(float) 轉型屬演算法邏輯必須保留**。
 // FastMath.log(base, x) = log(x)/log(base)，**base 在前**，寫反會得到 log(2)/log(v)。
 inline double valueForSegmentation(double v)
 {
@@ -59,7 +59,7 @@ SegmentationResult segmentRatios(const std::vector<CobaltRatio> &ratios, double 
 {
     SegmentationResult result;
     result.gamma = gamma;
-    result.isWindowed = true;                       // CobaltRatioSegmenter.isWindowed()（G3）
+    result.isWindowed = true;                       // CobaltRatioSegmenter.isWindowed()
 
     // ---- PerArmSegmenter 建構：value(r) = tumorGCRatio，過濾 >= 0.0（非嚴格）----
     std::map<std::string, std::size_t> armIndex;
@@ -158,7 +158,7 @@ SegmentationResult segmentRatios(const std::vector<CobaltRatio> &ratios, double 
                         // ChromosomeArmSegments.MeanRatio 取 **rawValues** 該段的平均（非 pcfMeans）
                         seg.meanRatio = doublesMean(a.rawValues.data() + idx, static_cast<std::size_t>(count));
                         idx += static_cast<std::size_t>(count);
-                        // WindowSegments.segmentEnd = endRatio.position() + WINDOW_SIZE - 1（G3）
+                        // WindowSegments.segmentEnd = endRatio.position() + WINDOW_SIZE - 1
                         seg.end = a.positions[idx - 1] + WINDOW_SIZE - 1;
                         a.segments.push_back(std::move(seg));
                     }
@@ -181,7 +181,7 @@ void writeSegmentsFile(const std::string &path, const SegmentationResult &result
 {
     std::ofstream out(path);
     if(!out){ throw std::runtime_error("cannot open for write: " + path); }
-    // SegmentsFile.java:25 的硬編碼表頭，**四欄，無 n.probes**（findings F1）
+    // SegmentsFile.java:25 的硬編碼表頭，**四欄，無 n.probes**
     out << "Chromosome\tStart\tEnd\tMeanRatio\n";
     for(const ArmData &a : result.arms)
     {

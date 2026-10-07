@@ -34,7 +34,7 @@ ConsolidatorChoice chooseConsolidator(double medianReadDepth);
 
 // LowCoverageConsolidator.consolidate + BamRatios.consolidate 的回填。
 // ratios 依 (chromosome ordinal, position) 排序、逐染色體連續。就地更新。
-// **本函式在 dev 樣本上不會被呼叫**（NoOp 分支），見 behaviour-contract.md §1.1。
+// 只在低覆蓋時被呼叫；開發時使用的全基因體樣本都走 NoOp 分支，沒有呼叫到本函式。
 void applyLowCoverageConsolidation(std::vector<BamRatio> &ratios, int consolidationCount);
 
 }

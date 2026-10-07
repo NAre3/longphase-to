@@ -1,9 +1,5 @@
-// COBALT tumor-only whole-genome 的 C++ 移植（purple-port-cobalt-fidelity-v2）。
-// 本檔目前涵蓋 EXP-C003（CP-C1..C5）、EXP-C004（CP-C6）、EXP-C005（CP-C7/C8）
-// EXP-C006（CP-C9/C10）、EXP-C007（CP-C11/C12 與兩個 stage 輸出）
-// 與 EXP-C008（CP-C13/C13b/C13c/C14 與 cobalt.ratio.pcf）。
-//
-// 行為出處逐條見 runs/RUN-C003/behaviour-contract.md。
+// COBALT 3.0 tumor-only whole-genome 的 C++ 移植。
+// 本檔涵蓋 CP-C1 到 CP-C14（含兩個 stage 輸出與 cobalt.ratio.pcf）。
 
 #include <algorithm>
 #include <cstdio>
@@ -280,9 +276,8 @@ PostscanResult postscan(const PipelineConfig &cfg, const PrescanResult &pre,
 
     // ---------------- CP-C9 / CP-C10 ----------------
     // 走訪順序：依 CP-C1 的染色體順序、window 昇冪。
-    // **這與 Java 的 ListMultimap 鍵走訪順序（identity hash，G28）不同，且刻意不重現**
-    // ——見 spec v2 §1.2 DECISION D2 與 behaviour-contract-mean.md §3.4。
-    // 後果：readDepthMean 與 Java 相差約 1e-15（相對），落在 §5.1 第二層容差內。
+    // **這與 Java 的 ListMultimap 鍵走訪順序（identity hash）不同，且刻意不重現**
+    // ——identity hash 的順序在 C++ 無從重現。後果：readDepthMean 與 Java 有 ulp 級的相對差異。
     std::vector<cobalt::BamRatio> ratios;
     ratios.reserve(windows.size());
     {
@@ -299,12 +294,12 @@ PostscanResult postscan(const PipelineConfig &cfg, const PrescanResult &pre,
         for(const cobalt::CobaltWindow *w : ordered)
         {
             cobalt::BamRatio r = cobalt::BamRatio::fromWindow(*w);
-            // normaliseForGc：excluded window 的 bucket 為 null -> isAllowed 為假 -> -1（G14）
+            // normaliseForGc：excluded window 的 bucket 為 null -> isAllowed 為假 -> -1
             const cobalt::GcPail *pail = (w->gcBucket < 0)
                 ? nullptr
                 : &pails.buckets()[static_cast<std::size_t>(w->gcBucket)];
             r.normaliseForGc(bucketStats.medianReadDepth(pail));
-            r.applyEnrichment(1.0);                 // WholeGenome：enrichmentQuotient 恆 1.0（G15）
+            r.applyEnrichment(1.0);                 // WholeGenome：enrichmentQuotient 恆 1.0
             ratios.push_back(std::move(r));
         }
     }
@@ -352,12 +347,12 @@ PostscanResult postscan(const PipelineConfig &cfg, const PrescanResult &pre,
         cobalt::chooseConsolidator(meanNormaliser.readDepthMedian());
     if(consolidator.className == "LowCoverageConsolidator")
     {
-        // **本分支在 dev 樣本上未被執行**（NoOp）。實作存在是為了讓 EXP-C009 能在
-        // Java 對照下驗證它，而非默默算下去——CP-C11-summary 的類別名是第一層零容差欄位。
+        // 這個分支只在低覆蓋時觸發，開發時使用的全基因體樣本都沒有走到（走 NoOp）。
+        // 實作依 Java 移植而非略過；CP-C11-summary 會記錄所選的 consolidator 類別。
         cobalt::applyLowCoverageConsolidation(ratios, consolidator.consolidationCount);
     }
     // MegaBaseScaleNormaliser 與 FinalNormaliser 在 tumor-only whole-genome 下皆為
-    // DoNothingNormaliser（G15）：兩趟 forEach 皆為空實作，不改變任何值。
+    // DoNothingNormaliser：兩趟 forEach 皆為空實作，不改變任何值。
 
     if(CpDump::enabled())
     {
@@ -389,7 +384,7 @@ PostscanResult postscan(const PipelineConfig &cfg, const PrescanResult &pre,
         rows.reserve(collated.size());
         for(const cobalt::CobaltRatio &c : collated)
         {
-            // CP-C12 用**物件欄序**（與檔案欄序不同，見 behaviour-contract.md §5.1）
+            // CP-C12 用**物件欄序**（與檔案欄序不同）
             rows.push_back(line(c.chromosome + "\t" + std::to_string(c.position) + "\t"
                                 + CpDump::num(c.referenceReadDepth) + "\t" + CpDump::num(c.referenceGCRatio) + "\t"
                                 + CpDump::num(c.referenceGCContent) + "\t" + CpDump::num(c.referenceGCDiploidRatio) + "\t"
@@ -412,13 +407,9 @@ PostscanResult postscan(const PipelineConfig &cfg, const PrescanResult &pre,
     }
 
     // ---------------- CP-C13 / C13b / C13c / C14 與 cobalt.ratio.pcf ----------------
-    // 【2026-09-21 就地更正】原註解記載「C++ 端的分段是單執行緒，Java 的
-    // PerArmSegmenter.getSegmentation 吃 executor，C++ 未平行化」——該敘述已不再成立。
-    // 分段改為每臂一個工作單位平行執行（cobalt/Segmentation.cpp），與 Java 同樣以臂為
-    // 平行粒度。輸出順序由 result.arms 決定而非完成順序，故結果不變。
-    //
-    // 動機：在整合版的資源量測中，COBALT postscan 佔全流程 208s／699s（約 30%），
-    // 其中絕大部分是這段分段，而它當時完全沒有用到多核。
+    // 分段以每臂一個工作單位平行執行（cobalt/Segmentation.cpp），與 Java 的
+    // PerArmSegmenter.getSegmentation 同樣以臂為平行粒度。輸出順序由 result.arms 決定
+    // 而非完成順序，故結果與單執行緒相同。
     const double pcfGamma = cfg.pcfGamma;
     cobalt::SegmentationResult seg = cobalt::segmentRatios(collated, pcfGamma, cfg.threads);
 

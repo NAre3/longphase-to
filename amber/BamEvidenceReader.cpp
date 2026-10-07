@@ -68,11 +68,11 @@ bool isIndel(int bafPosition, int readIndex, const SamRecordView &read)
 }
 
 // 對應 PositionEvidenceChecker.addEvidence（PositionEvidenceChecker.java:23-80）。
-// 必須逐條保留的非直覺行為見 behaviour-contract.md §2.1：
+// 必須逐條保留的非直覺行為：
 //   - readDepth 在 filter 判定之後、return 之前無條件遞增（被擋掉的 read 仍計入）
 //   - 兩個品質 filter 各自獨立判定，同一條 read 可同時計入兩個計數器
 //   - readIndex < 0（位點落在 deletion）時 Ref/Alt 與 indelCount 三者都不動
-//   - seqTechFiltered 只在 ULTIMA 下遞增，本研究恆為 0
+//   - seqTechFiltered 只在 ULTIMA 下遞增，ONT／PacBio 恆為 0
 void addEvidence(PositionEvidence &posEvidence, const SamRecordView &read,
         int minMappingQuality, int minBaseQuality, BamScanStats &stats)
 {
@@ -145,13 +145,13 @@ void processRecord(RegionTask &task, const SamRecordView &read,
         addEvidence(posEvidence, read, minMappingQuality, minBaseQuality, stats);
     }
 
-    // Java 端在此設定 mComplete 並觸發 haltProcessing。behaviour-contract.md §2.4 已論證
+    // Java 端在此設定 mComplete 並觸發 haltProcessing。
     // 該條件在本設定下不可能成立（要觸發它的 read 不會被查詢送進來），故不實作。
 }
 
 }
 
-// 共用掃描層（EXP-I02）需要的兩個入口。兩者都只是把既有的匿名 namespace 實作轉出去，
+// 共用掃描層需要的兩個入口。兩者都只是把既有的匿名 namespace 實作轉出去，
 // **一行邏輯都沒有改**——processBam 與 ContigSink 因此呼叫的是同一份程式碼。
 bool passesSlicerFilters(const bam1_t *record)
 {

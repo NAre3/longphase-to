@@ -30,7 +30,7 @@ void writeAmberQcFile(const std::string &path, double contamination, double cons
 // 對應 PositionEvidenceFile.write（`-write_tumor_data` 時寫出 <sample>.amber.tumor.raw.tsv.gz）。
 // 內容即 CP-A5 的 rawData——同一份已逐位元組驗證過的資料，只是換上 AMBER 的欄名。
 // **純輸出，不影響任何計算**：產生 Java 參考端時本就帶著 -write_tumor_data，而 C++ 端在
-// 未實作此輸出的情況下，30 組樣本的十一個 checkpoint 與三個 stage 輸出仍逐位元組相同。
+// 未實作此輸出的情況下，驗證樣本的十一個 checkpoint 與三個 stage 輸出仍逐位元組相同。
 struct RawTumorRow
 {
     const std::string *chromosome;

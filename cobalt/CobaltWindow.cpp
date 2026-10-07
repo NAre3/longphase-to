@@ -45,7 +45,7 @@ std::vector<CobaltWindow> buildWindows(const std::vector<DepthReading> &depths,
             const std::size_t idx = static_cast<std::size_t>(indexFor(d.startPosition));
             if(st != nullptr && idx < st->size()){ isExcluded = (*st)[idx].maskedOut(); }
         }
-        const bool isInTargetRegion = true;                 // WholeGenome：Scope.onTarget 恆真（G15）
+        const bool isInTargetRegion = true;                 // WholeGenome：Scope.onTarget 恆真
 
         CobaltWindow w;
         w.chromosomeShort = shortName;

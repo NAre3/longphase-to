@@ -22,16 +22,16 @@ InputData loadInputs(const PipelineConfig &cfg)
 void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
         const ChromosomeLengths &lengths, const LohFillInput *lohFill)
 {
-    // 這個函式的內容原本是 PurpleApplication.cpp 的 main() 主體（34b8d97）。
+    // 這個函式的內容原本是 PurpleApplication.cpp 的 main() 主體。
     // 抽出時只改了取值來源（argv -> cfg），沒有改動任何呼叫順序或引數。
-    // ［2026-10-03 註：之後在 observed regions 與擬合之間加入了 LOH 補回步驟（lohFill 非 nullptr 時）。］
+    // 之後在 observed regions 與擬合之間加入了 LOH 補回步驟（lohFill 非 nullptr 時）。
     dumpInputCheckpoint(inputs);
     const auto segments = createSupportSegments(inputs, lengths);
     dumpSupportSegments(segments);
     auto observed = createObservedRegions(inputs, segments);
     dumpObservedRegions(observed);
     // LOH 補回（PurpleLohFill.h）。CP-P3 是補前的值；之後的擬合、選解、copy number
-    // 與輸出全部吃補後的值。lohFill 為 nullptr 時不做任何事，行為與 34b8d97 相同。
+    // 與輸出全部吃補後的值。lohFill 為 nullptr 時不做任何事，行為與加入補回之前相同。
     LohFillResult fill;
     if(lohFill != nullptr){
         fill = applyLohFill(observed, *lohFill);

@@ -58,7 +58,7 @@ struct NoiseFloorResult
     double contamination = 0.0;
     std::vector<double> contaminationPeakVafs;
 
-    // 診斷用（不進驗收規則）：Java 端以 -log_debug 印出同樣的量
+    // 診斷用（不參與 Java 對照）：Java 端以 -log_debug 印出同樣的量
     std::size_t evidencePoints = 0;
     std::size_t evidencePointsAfterImmuneFilter = 0;
     double baselineHetGnomadFrequency = 0.0;

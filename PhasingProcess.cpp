@@ -126,7 +126,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     }
     begin = time(NULL);
 
-    // ---- AMBER prescan（EXP-I02）----
+    // ---- AMBER prescan ----
     //
     // CP-A1 → CP-A2b 全部在共用走訪之前完成，產出 evidence 與 RegionTask。
     // 之後每條染色體各自建一個 ContigSink，由共用走訪把 read 路由進去。
@@ -157,7 +157,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         amberPrescan = amber::prescan(amberCfg);
         std::cerr<< difftime(time(NULL), begin) << "s\n";
 
-        // 掃描的 contig 清單 = 候選 VCF 的 contig ∪ AMBER 的 contig（C4／D7）。
+        // 掃描的 contig 清單 = 候選 VCF 的 contig ∪ AMBER 的 contig。
         // 候選 VCF 沒有的 contig 仍必須被掃描，否則該 contig 上的 AMBER 位點整條缺席。
         const std::vector<std::pair<std::string, std::pair<std::size_t, std::size_t>>> taskIndex =
                 amber::indexTasksByChromosome(amberPrescan.tasks);
@@ -185,11 +185,11 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         }
     }
 
-    // ---- COBALT prescan（EXP-I03）----
+    // ---- COBALT prescan ----
     //
     // CP-C1 → CP-C5 在共用走訪之前完成。與 AMBER 不同的是 COBALT 只需要**一個**
     // 全域 accumulator：ReadDepthAccumulator 內部依染色體分槽、各槽自己的 atomic
-    // 陣列，故不同執行緒寫不同染色體的槽互不干擾（design.md E1）。
+    // 陣列，故不同執行緒寫不同染色體的槽互不干擾。
     cobalt::PipelineConfig cobaltCfg;
     cobalt::PrescanResult cobaltPrescan;
     cobalt::PostscanResult cobaltResult;
@@ -220,7 +220,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         std::cerr<< difftime(time(NULL), begin) << "s\n";
 
         // COBALT 的 contig 來自 BAM header @SQ 過濾 isHumanChromosome（CobaltApplication.cpp:38-59），
-        // 與候選 VCF、AMBER 的清單都可能不同 ⇒ 併進 scanContigs（C4 / design.md E2）。
+        // 與候選 VCF、AMBER 的清單都可能不同 ⇒ 併進 scanContigs。
         std::set<std::string> known(scanContigs.begin(), scanContigs.end());
         for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
             cobaltContigLength[c.name] = c.length;
@@ -264,21 +264,21 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         int lastSNPpos = (scanIdx < static_cast<int>(chrName.size()))
                 ? snpFile.getLastSNP(contigName) : -1;
 
-        // 共用走訪的右界（design.md D9）
+        // 共用走訪的右界
         int scanRightEdge = lastSNPpos;
         if( amberSink != nullptr ){
             scanRightEdge = std::max(scanRightEdge, amberSink->maxTaskEnd());
         }
-        // COBALT 要每個 window 都被看到 ⇒ 右界推到整條 contig（design.md E3）。
-        // **F3 因此必須在 EXP-I03 重新量測，不得沿用 EXP-I02 的結果。**
+        // COBALT 要每個 window 都被看到 ⇒ 右界推到整條 contig。
+        // 放寬右界只會在尾端追加記錄，LongPhase-TO 自身的 read 集合由 direct_detect_alleles 內的閘門保持不變。
         if( cobaltSink != nullptr ){
             scanRightEdge = std::max(scanRightEdge, cobaltContigLength[contigName]);
         }
 
         // therer is no variant on SNP file.
         if( lastSNPpos == -1 ){
-            // D7：沒有候選變異的 contig 現在仍必須被掃描給 AMBER，只跳過 clip／graph／phasing。
-            // BamParser 在此建不出來（D4：建構子對空 variant map 直接 exit(1)），
+            // 沒有候選變異的 contig 仍必須被掃描給 AMBER／COBALT，只跳過 clip／graph／phasing。
+            // BamParser 在此建不出來（建構子對空 variant map 直接 exit(1)），
             // 故走另一個進入點。
             if( (amberSink != nullptr || cobaltSink != nullptr) && scanRightEdge > 0 ){
                 consumerOnlyContigScan(params.bamFile.front(), contigName, scanRightEdge,
@@ -336,7 +336,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         std::cerr<< "(" << contigName << "," << difftime(time(NULL), chrbegin) << "s)";
     }
 
-    // ---- AMBER postscan（EXP-I02）----
+    // ---- AMBER postscan ----
     //
     // CP-A3 → CP-A9 與三個 stage 輸出。呼叫的是 amber_port 用的同一組函式。
     if(params.amberEnabled()){
@@ -353,7 +353,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
             amberStats.nonAcgtnBases += sink->stats().nonAcgtnBases;
         }
 
-        // recordsConsumed 的語義與 amber_port 不同（design.md D3）：此處是「通過 slicer
+        // recordsConsumed 的語義與 amber_port 不同：此處是「通過 slicer
         // filter 的 read 數」，amber_port 是「per-region 造訪次數」。刻意不重現，
         // 該欄位不進任何 checkpoint 或 stage 輸出。
         std::fprintf(stderr, "AMBER shared scan: consumed %llu reads (per-read, not per-region), "
@@ -372,11 +372,11 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         std::cerr<< difftime(time(NULL), begin) << "s\n";
     }
 
-    // ---- COBALT postscan（EXP-I03）----
+    // ---- COBALT postscan ----
     //
     // CP-C6 → CP-C14 與三個 stage 輸出。呼叫的是 cobalt_port 用的同一組函式。
     // depths 由 accumulator 依 prescan 的 chromosomes 順序取出——**該順序取自
-    // BAM header @SQ，與共用走訪的 contig 順序無關**（design.md E2），
+    // BAM header @SQ，與共用走訪的 contig 順序無關**，
     // 因此 scanContigs 的排法不影響 COBALT 的任何輸出。
     if(params.cobaltEnabled()){
         std::cerr << std::endl;

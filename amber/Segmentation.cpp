@@ -72,11 +72,11 @@ SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs, int threads)
 
     if(result.penaltyMode == "uniform"){
         // PerArmSegmenter.java:55-72 的 uniform 分支。其 allRatios 的組裝順序取自
-        // HashMap.keySet()，跨語言不保證。本研究的資料不走此分支（spec U5 已關閉），
+        // HashMap.keySet()，跨語言不保證。開發時使用的全基因體樣本都不走此分支，
         // 故不實作——寧可明確失敗，也不要用一個未經驗證的順序默默算出結果。
         throw std::runtime_error(
                 "uniform penalty branch is not implemented: its allRatios assembly order comes from "
-                "HashMap.keySet() and is not reproducible across languages (see spec U5). "
+                "HashMap.keySet() and is not reproducible across languages. "
                 "totalCount=" + std::to_string(totalCount));
     }
 
@@ -228,7 +228,7 @@ void writeSegmentationCheckpoints(const SegmentationResult &result)
         return;
     }
 
-    // CP-A8：分段輸入與 penalty（對應 patch_segmenter.py 插在 PerArmSegmenter 建構子尾端）
+    // CP-A8：分段輸入與 penalty（對應 Java 端在 PerArmSegmenter 建構子尾端插入的 dump）
     std::vector<CpDump::Row> a8;
     a8.push_back({"", 0, "totalCount\t" + std::to_string(result.totalCount)});
     a8.push_back({"", 0, "uniformPenaltyThreshold\t" + std::to_string(result.uniformPenaltyThreshold)});

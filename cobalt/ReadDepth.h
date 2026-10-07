@@ -33,7 +33,7 @@ class ReadDepthAccumulator
 public:
     explicit ReadDepthAccumulator(int windowSize) : mWindowSize(windowSize) {}
 
-    // numWindows = chromosomeLength / windowSize（整數除法，G10）
+    // numWindows = chromosomeLength / windowSize（整數除法）
     void addChromosome(const std::string &chromosome, int chromosomeLength);
 
     // genomeStart 為 1-based，readStartIndex 為 0-based。thread safe。
@@ -70,14 +70,14 @@ std::vector<DepthReading> calculateReadDepths(const std::string &bamPath,
                                               bool includeDuplicates,
                                               int threads);
 
-// ---- 共用掃描層（EXP-I03）----
+// ---- 共用掃描層 ----
 //
 // 整合版不自己開 BAM、不自己建 iterator、不做 partition 路由，read 由 LongPhase-TO 的
 // 線性走訪送進來。DepthSink 每條染色體一個，但**共用同一個 accumulator**：
 // ReadDepthAccumulator 內部依染色體分槽、各槽自己的 atomic 陣列，因此不同執行緒
 // 寫不同染色體的槽互不干擾，不需要鎖。
 //
-// 為什麼不需要 partition 路由（design.md E1）：partitionGenome 把每條染色體切成
+// 為什麼不需要 partition 路由：partitionGenome 把每條染色體切成
 // 連續、不重疊、覆蓋 [1, length] 的區段，而累加是 atomic<int>::fetch_add（可交換）。
 // 因此「逐 partition 裁切後加總」與「裁到 [1, length] 一次」結果相同。
 class DepthSink

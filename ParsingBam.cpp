@@ -1199,7 +1199,7 @@ void BamParser::direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThre
             exit(1);
         }
         
-        // EXP-I02：右界放寬到 scanRightEdge（design.md D9）。amberSink 為 nullptr 時
+        // 右界放寬到 scanRightEdge。amberSink 為 nullptr 時
         // scanRightEdge 由呼叫端設為 lastSNPPos，range 與整合前逐字相同。
         std::string range = chrName + ":1-" + std::to_string(scanRightEdge);
         hts_itr_t* iter = sam_itr_querys(idx, bamHdr, range.c_str());
@@ -1210,9 +1210,9 @@ void BamParser::direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThre
         while ((result = sam_itr_multi_next(fp_in, iter, aln)) >= 0) { 
             int flag = aln->core.flag;
 
-            // ---- 共用掃描層的分派點（EXP-I02）----
+            // ---- 共用掃描層的分派點 ----
             //
-            // 共用層**零過濾**（RUN-I001 的結論）：三個消費者的納入條件不一致
+            // 共用層**零過濾**：三個消費者的納入條件不一致
             // （supplementary 與 MAPQ 兩格），任何上提到此處的過濾都會讓某一方少看到 read。
             // 因此 AMBER 消費者在 LongPhase-TO 自己的 filter **之前**取得原始記錄。
             if (amberSink != nullptr) {
@@ -1222,11 +1222,11 @@ void BamParser::direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThre
                 cobaltSink->consume(aln);
             }
 
-            // LongPhase-TO 消費者的閘門（design.md D6）：
+            // LongPhase-TO 消費者的閘門：
             // 原本的 iterator 是 chr:1-lastSNPPos，其記錄集合等價於「與 [1, lastSNPPos] 重疊」，
             // 對 mapped read 而言即 alignmentStart <= lastSNPPos。
             // BAM 依座標排序，放寬右界只在尾端追加記錄，故通過此閘門的子集合
-            // 其內容與相對順序都與整合前逐筆相同 → readVariantVec 不變 → F3。
+            // 其內容與相對順序都與整合前逐筆相同 → readVariantVec 不變 → phasing 結果不變。
             if (aln->core.pos + 1 > lastSNPPos) {
                 continue;
             }
@@ -1254,11 +1254,11 @@ void BamParser::direct_detect_alleles(int lastSNPPos, int scanRightEdge, htsThre
 }
 
 
-// EXP-I02：只有 AMBER 消費者的 contig。
+// 只有 ACP 消費者（AMBER／COBALT）的 contig。
 //
 // 與 direct_detect_alleles 的差別只有「沒有 LongPhase-TO 消費者」：不建 BamParser、
 // 不碰候選變異、不碰參考序列。htslib 的開關檔樣板刻意與上面那份保持一致而非抽共用函式——
-// 上面那份是凍結行為的熱路徑，讓它維持原樣比省二十行重複碼重要。
+// 上面那份是 LongPhase-TO 既有行為的熱路徑，讓它維持原樣比省二十行重複碼重要。
 void consumerOnlyContigScan(const std::string &bamFile, const std::string &chrName,
         int scanRightEdge, htsThreadPool &threadPool, const PhasingParameters &params,
         amber::ContigSink *amberSink, cobalt::DepthSink *cobaltSink){

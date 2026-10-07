@@ -22,7 +22,7 @@ bool isAutosome(const std::string &shortName)
 }
 
 // commons-math3 Sum.evaluate：單純循序累加，**無補償**
-// （與 EXP-C005 的 DoubleStream.average 的 Kahan 補償不同，不可混用）
+// （與 GcBuckets.cpp 中 DoubleStream.average 的 Kahan 補償不同，不可混用）
 double sumEvaluate(const std::vector<double> &v)
 {
     double sum = 0.0;
