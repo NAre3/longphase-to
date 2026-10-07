@@ -1,11 +1,14 @@
 #include "NoiseFloor.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #include "CommonsMath.h"
@@ -405,7 +408,7 @@ std::vector<std::size_t> findLocalMaxima(const std::vector<double> &scores)
 
 }
 
-NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence)
+NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence, int threads)
 {
     NoiseFloorResult result;
     result.evidencePoints = evidence.size();
@@ -456,12 +459,17 @@ NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence
     const std::vector<std::pair<double, double>> grid = searchValuesAndSteps();
 
     std::vector<CandidatePeak> peaks;
-    std::vector<double> scores;
+    std::vector<double> scores(grid.size(), 0.0);
     peaks.reserve(grid.size());
-    scores.reserve(grid.size());
-
     for(const auto &levelAndStep : grid){
-        CandidatePeak peak(levelAndStep.first, levelAndStep.second);
+        peaks.emplace_back(levelAndStep.first, levelAndStep.second);
+    }
+
+    // 每個 level 都要對全部點各算最多三次 binomialCdf，點數多時是 AMBER postscan 的主要耗時之一。
+    // level 之間沒有相依：各自只寫 peaks[i]、scores[i]，點的測試順序在 level 內不變，
+    // 故結果與單執行緒逐位元相同。CommonsMath 無共享狀態，可平行呼叫。
+    auto scoreLevel = [&](std::size_t levelIndex){
+        CandidatePeak &peak = peaks[levelIndex];
 
         // CandidatePeakEvaluation.java:23-42
         std::vector<const PositionEvidence *> testable;
@@ -486,9 +494,45 @@ NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence
             }
         }
 
-        peaks.push_back(std::move(peak));
-        scores.push_back(score);
-        result.gridScores.emplace_back(levelAndStep.first, score);
+        scores[levelIndex] = score;
+    };
+
+    std::atomic<std::size_t> nextLevel{0};
+    std::atomic<bool> failed{false};
+    std::string failure;
+    std::mutex failureMutex;
+    auto worker = [&](){
+        for(std::size_t i; (i = nextLevel.fetch_add(1)) < grid.size(); ){
+            // 例外若逸出 std::thread 會直接 std::terminate：記下來，join 之後再重拋
+            try{
+                scoreLevel(i);
+            }catch(const std::exception &exception){
+                std::lock_guard<std::mutex> lock(failureMutex);
+                if(!failed.exchange(true)){
+                    failure = exception.what();
+                }
+            }
+        }
+    };
+    const int workerCount = std::max(1, std::min(threads, static_cast<int>(grid.size())));
+    if(workerCount == 1){
+        worker();
+    }else{
+        std::vector<std::thread> pool;
+        pool.reserve(static_cast<std::size_t>(workerCount));
+        for(int w = 0; w < workerCount; ++w){
+            pool.emplace_back(worker);
+        }
+        for(std::thread &t : pool){
+            t.join();
+        }
+    }
+    if(failed.load()){
+        throw std::runtime_error("amber noise floor grid failed: " + failure);
+    }
+
+    for(std::size_t i = 0; i < grid.size(); ++i){
+        result.gridScores.emplace_back(grid[i].first, scores[i]);
     }
 
     const std::vector<std::size_t> maxima = findLocalMaxima(scores);

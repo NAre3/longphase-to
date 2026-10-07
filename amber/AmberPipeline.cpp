@@ -392,7 +392,7 @@ PostscanResult postscan(const PipelineConfig &cfg, const std::vector<PositionEvi
         rawDataValues.push_back(*pe);
     }
 
-    const amber::NoiseFloorResult noiseFloorResult = amber::computeNoiseFloor(rawDataValues);
+    const amber::NoiseFloorResult noiseFloorResult = amber::computeNoiseFloor(rawDataValues, threads);
 
     std::fprintf(stderr, "noise floor: %zu evidence points, %zu after immune filter, %zu maxima, "
             "noiseFloor(%.3f) contamination(%.3f)\n",
@@ -559,7 +559,7 @@ PostscanResult postscan(const PipelineConfig &cfg, const std::vector<PositionEvi
     // BAFSegmenter.writeSegments → PerArmSegmenter。gamma 硬編碼 100.0，AMBER 4.3 無 CLI 可調。
     // 注意 tumor-only 也會做分段：runTumorOnly 本身沒呼叫，但它呼叫的 persistBAF 內有。
 
-    amber::SegmentationResult segmentation = amber::segmentBafs(amberBAFList);
+    amber::SegmentationResult segmentation = amber::segmentBafs(amberBAFList, threads);
 
     std::size_t segmentCount = 0;
     for(const amber::ArmSegments &arm : segmentation.arms){

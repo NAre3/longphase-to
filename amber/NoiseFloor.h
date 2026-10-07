@@ -68,7 +68,9 @@ struct NoiseFloorResult
 
 // 對應 TumorOnlyPurityAnalysis 的建構與 cutoff()。
 // evidence 為 CP-A5 的 rawData（四道 filter 與排序之後）。
-NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence);
+// grid 的各 level 彼此獨立，threads > 1 時逐 level 平行；每個 level 內仍依 evidence 原順序測試，
+// 結果與 threads 無關（逐位元相同）。
+NoiseFloorResult computeNoiseFloor(const std::vector<PositionEvidence> &evidence, int threads = 1);
 
 }
 

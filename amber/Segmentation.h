@@ -49,7 +49,9 @@ struct SegmentationResult
 
 // 對應 BAFSegmenter.writeSegments → PerArmSegmenter 建構 + getSegmentation。
 // value(baf) = tumorModifiedBAF，入選條件為 value >= 0.0。
-SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs);
+// 各 arm 的分段彼此獨立，threads > 1 時逐 arm 平行（比照 cobalt/Segmentation.cpp）。
+// 每個 arm 內的運算與單執行緒逐字相同，arms 的順序在平行前已排好，結果與 threads 無關。
+SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs, int threads = 1);
 
 // 對應 SegmentsFile.write（chromosome 加 chr 前綴、MeanRatio 以 DecimalFormat("#.####") 格式化）
 void writeSegmentsFile(const std::string &path, const SegmentationResult &result);

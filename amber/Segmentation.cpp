@@ -2,12 +2,15 @@
 #include "../common/Segmentation.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 
 #include "../common/CpDump.h"
 #include "../common/HumanChromosome.h"
@@ -18,7 +21,7 @@ namespace amber {
 using namespace lp;
 
 
-SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs)
+SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs, int threads)
 {
     SegmentationResult result;
 
@@ -88,11 +91,24 @@ SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs)
         bafsByArm[shortName + "_" + arm].push_back(&baf);
     }
 
-    for(ArmSegments &arm : result.arms){
-        if(arm.values.empty()){
-            continue;
+    // 平行前先把每個 arm 對應的 BAF 清單解析好：std::map::operator[] 會插入，不能在執行緒間共用。
+    std::vector<const std::vector<const AmberBAF *> *> armBafsOf(result.arms.size(), nullptr);
+    for(std::size_t i = 0; i < result.arms.size(); ++i){
+        const auto found = bafsByArm.find(result.arms[i].armId);
+        if(found != bafsByArm.end()){
+            armBafsOf[i] = &found->second;
         }
+    }
 
+    // 逐 arm 平行。平行度上限是最大的 arm（約 40 個 arm、長度差距大）。
+    // 點數多時，單執行緒的分段是 AMBER postscan 的主要耗時之一。
+    // 每個 arm 只寫自己的 segments，不改動 arms 的順序，故輸出與單執行緒相同。
+    std::atomic<std::size_t> nextArm{0};
+    std::atomic<bool> failed{false};
+    std::string failure;
+    std::mutex failureMutex;
+
+    auto segmentArm = [&](ArmSegments &arm, const std::vector<const AmberBAF *> &armBafs){
         // Segmenter 以 GammaPenaltyCalculator(gamma, true) 逐 arm 計算 penalty
         const double penalty = gammaSegmentPenalty(arm.values, BAF_SEGMENTATION_GAMMA, true);
         const Fit fit = segment(arm.values, penalty);
@@ -100,7 +116,6 @@ SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs)
         // ChromosomeArmSegments 建構（ChromosomeArmSegments.java:14-30）：
         // MeanRatio 取 rawValues 該段的平均（Doubles.mean），**不是** PiecewiseConstantFit
         // 裡那個已四捨五入到三位小數的 means。
-        const std::vector<const AmberBAF *> &armBafs = bafsByArm[arm.armId];
         std::size_t ratiosIndex = 0;
 
         for(std::size_t i = 0; i < fit.lengths.size(); ++i){
@@ -118,6 +133,45 @@ SegmentationResult segmentBafs(const std::vector<AmberBAF> &bafs)
             segment.meanRatio = meanRatio;
             arm.segments.push_back(std::move(segment));
         }
+    };
+
+    auto worker = [&](){
+        while(true){
+            const std::size_t index = nextArm.fetch_add(1);
+            if(index >= result.arms.size()){
+                break;
+            }
+            ArmSegments &arm = result.arms[index];
+            if(arm.values.empty()){
+                continue;
+            }
+            // 例外若逸出 std::thread 會直接 std::terminate：記下來，join 之後再重拋
+            try{
+                segmentArm(arm, *armBafsOf[index]);
+            }catch(const std::exception &exception){
+                std::lock_guard<std::mutex> lock(failureMutex);
+                if(!failed.exchange(true)){
+                    failure = arm.armId + ": " + exception.what();
+                }
+            }
+        }
+    };
+
+    const int workerCount = std::max(1, std::min(threads, static_cast<int>(result.arms.size())));
+    if(workerCount == 1){
+        worker();
+    }else{
+        std::vector<std::thread> pool;
+        pool.reserve(static_cast<std::size_t>(workerCount));
+        for(int w = 0; w < workerCount; ++w){
+            pool.emplace_back(worker);
+        }
+        for(std::thread &t : pool){
+            t.join();
+        }
+    }
+    if(failed.load()){
+        throw std::runtime_error("amber PCF segmentation failed on arm " + failure);
     }
 
     return result;
