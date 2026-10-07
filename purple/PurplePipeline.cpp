@@ -55,7 +55,7 @@ void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
     writeCoreOutputs(cfg.outputDir, inputs, fits, bestFit, fittedRegions, copyNumbers, summary);
     // 放在 writeCoreOutputs 之後：輸出目錄由它建立。
     if(lohFill != nullptr){ writeLohFillTsv(cfg.outputDir, inputs.sampleId, fill); }
-    std::cerr << "PURPLE P10 core-output stage complete: " << inputs.bafs.size() << " BAF, "
+    std::cerr << "PURPLE core outputs written: " << inputs.bafs.size() << " BAF, "
               << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
               << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
               << observed.size() << " observed regions, " << fits.size() << " purity/ploidy candidates\n";
