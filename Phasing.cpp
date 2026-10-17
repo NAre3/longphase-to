@@ -69,7 +69,10 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --purple-sample=NAME                   sample id used for the PURPLE output file names. default: --amber-sample\n"
 "   --disable-purple-loh-fill              do not fill AMBER BAF observations in longphase-to LOH segments before PURPLE fitting.\n"
 "                                          (the fill is on by default; it writes <sample>.purple.loh_fill.tsv)\n"
-"   --purple-cpdump-dir=DIR                write PURPLE checkpoint dumps (CP-P*) into DIR.\n\n"
+"   --purple-cpdump-dir=DIR                write PURPLE checkpoint dumps (CP-P*) into DIR.\n"
+"   --purple-phased-baf                    estimate the BAF of fitting regions from the phased SNVs with a\n"
+"                                          haplotype-orientation HMM instead of the per-site folded median.\n"
+"   --purple-exclude-allosomes             tumor-only: exclude X and Y from purity fitting (PURPLE 4.0-4.3 behaviour).\n\n"
 
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
@@ -98,7 +101,7 @@ enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, V
        COBALT_GC_PROFILE, COBALT_DIPLOID_BED, COBALT_EXCLUDED_REGIONS,
        PURPLE_ENSEMBL_DATA_DIR, PURPLE_OUTPUT_DIR, PURPLE_SAMPLE,
        COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY,
-       DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR};
+       DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR, PURPLE_PHASED_BAF, PURPLE_EXCLUDE_ALLOSOMES};
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -161,6 +164,8 @@ static const struct option longopts[] = {
     { "cobalt-min-map-quality", required_argument, NULL, COBALT_MIN_MAP_QUALITY },
     { "disable-purple-loh-fill", no_argument,     NULL, DISABLE_PURPLE_LOH_FILL },
     { "purple-cpdump-dir",    required_argument,  NULL, PURPLE_CPDUMP_DIR },
+    { "purple-phased-baf",    no_argument,        NULL, PURPLE_PHASED_BAF },
+    { "purple-exclude-allosomes", no_argument,    NULL, PURPLE_EXCLUDE_ALLOSOMES },
     { NULL, 0, NULL, 0 }
 };
 
@@ -302,6 +307,8 @@ namespace opt
     static std::string purpleSample="";
     static bool purpleLohFill=true;
     static std::string purpleCpDumpDir="";
+    static bool purplePhasedBaf=false;
+    static bool purpleExcludeAllosomes=false;
 
     static bool outputLOH = false;
     static bool outputSGE = false;
@@ -424,6 +431,8 @@ void PhasingOptions(int argc, char** argv)
         case PURPLE_SAMPLE: arg >> opt::purpleSample; break;
         case DISABLE_PURPLE_LOH_FILL: opt::purpleLohFill=false; break;
         case PURPLE_CPDUMP_DIR: arg >> opt::purpleCpDumpDir; break;
+        case PURPLE_PHASED_BAF: opt::purplePhasedBaf=true; break;
+        case PURPLE_EXCLUDE_ALLOSOMES: opt::purpleExcludeAllosomes=true; break;
         case COBALT_OUTPUT_DIR: arg >> opt::cobaltOutputDir; break;
         case COBALT_SAMPLE: arg >> opt::cobaltSample; break;
         case COBALT_MIN_MAP_QUALITY: arg >> opt::cobaltMinMapQuality; break;
@@ -800,6 +809,8 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.purpleSampleId = opt::purpleSample;
     ecParams.purpleLohFill = opt::purpleLohFill;
     ecParams.purpleCpDumpDir = opt::purpleCpDumpDir;
+    ecParams.purplePhasedBaf = opt::purplePhasedBaf;
+    ecParams.purpleExcludeAllosomes = opt::purpleExcludeAllosomes;
     ecParams.cobaltMinMapQuality = opt::cobaltMinMapQuality;
 
     PhasingProcess processor(ecParams);

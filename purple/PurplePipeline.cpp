@@ -11,6 +11,10 @@
 #include "PurpleCopyNumber.h"
 #include "PurpleSummary.h"
 #include "PurpleWriters.h"
+#include "PurplePhasedBaf.h"
+#include "common/HumanChromosome.h"
+
+#include <set>
 
 namespace purple {
 
@@ -20,7 +24,7 @@ InputData loadInputs(const PipelineConfig &cfg)
 }
 
 void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
-        const ChromosomeLengths &lengths, const LohFillInput *lohFill)
+        const ChromosomeLengths &lengths, const LohFillInput *lohFill, const PhasedSnvMap *phased)
 {
     // 這個函式的內容原本是 PurpleApplication.cpp 的 main() 主體。
     // 抽出時只改了取值來源（argv -> cfg），沒有改動任何呼叫順序或引數。
@@ -39,14 +43,36 @@ void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
         std::cerr << "PURPLE LOH fill: retention " << fill.ret << " over " << fill.retSegments
                   << " non-LOH segments, filled " << fill.filled.size() << " segments\n";
     }
-    const auto fittingRegions = selectFittingRegions(observed);
+    auto fittingRegions = selectFittingRegions(observed, cfg.excludeAllosomes);
     dumpFittingRegions(fittingRegions);
-    const auto fits = fitPurityGrid(fittingRegions, inputs.averageTumorDepth, cfg.threads);
+    // phased 段 BAF：在 observed 的副本上改寫擬合段的 observedBaf。CP-P4 是改寫前的值。
+    // aneuploid 判斷（selectTumorOnlyBestFit）仍用原 observed：它的 0.57 門檻是針對折疊後的 BAF 定的。
+    std::vector<ObservedRegion> observedPhased;
+    std::vector<char> halfAmbiguous;
+    if(phased != nullptr){
+        observedPhased = observed;
+        halfAmbiguous.assign(observed.size(), 0);
+        std::vector<ObservedRegion *> targets;
+        for(const ObservedRegion *region : fittingRegions){
+            const size_t index = static_cast<size_t>(region - observed.data());
+            halfAmbiguous[index] = 1;
+            targets.push_back(&observedPhased[index]);
+        }
+        std::set<std::pair<std::string, int>> filledKeys;
+        for(const auto &record : fill.filled){ filledKeys.insert({lp::stripChrPrefix(record.chromosome), record.start}); }
+        const auto phasedResult = applyPhasedBaf(targets, inputs.bafs, *phased, filledKeys);
+        dumpPhasedBaf(targets, phasedResult);
+        std::cerr << "PURPLE phased BAF: kappa " << phasedResult.kappa << ", switch " << phasedResult.switchProbability
+                  << ", " << phasedResult.regionsUpdated << " of " << targets.size() << " fitting regions updated\n";
+        fittingRegions.assign(targets.begin(), targets.end());
+    }
+    const auto fits = fitPurityGrid(fittingRegions, inputs.averageTumorDepth, cfg.threads, phased != nullptr ? 0.5 : -1);
     dumpPurityGrid(fits);
     const auto bestFit = selectTumorOnlyBestFit(fits, observed);
     dumpBestFit(bestFit);
-    const auto fittedRegions = fitObservedRegions(observed, bestFit.fit, inputs.averageTumorDepth,
-            inputs.cobaltGender);
+    const auto fittedRegions = phased != nullptr
+            ? fitObservedRegions(observedPhased, bestFit.fit, inputs.averageTumorDepth, inputs.cobaltGender, &halfAmbiguous)
+            : fitObservedRegions(observed, bestFit.fit, inputs.averageTumorDepth, inputs.cobaltGender);
     dumpFittedRegions(fittedRegions);
     const auto copyNumbers = buildCopyNumbers(fittedRegions, bestFit.fit, inputs.cobaltGender);
     dumpCopyNumbers(copyNumbers);

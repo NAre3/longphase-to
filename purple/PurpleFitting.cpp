@@ -152,23 +152,24 @@ std::vector<double> ploidies(){
 
 }
 
-std::vector<const ObservedRegion *> selectFittingRegions(const std::vector<ObservedRegion> &regions){
+std::vector<const ObservedRegion *> selectFittingRegions(const std::vector<ObservedRegion> &regions, bool excludeAllosomes){
     std::vector<const ObservedRegion *> result;
     for(const auto &region : regions){
         const std::string chromosome = lp::stripChrPrefix(region.segment.chromosome);
         if(region.bafCount <= 0 || !greaterOrEqual(region.observedTumorRatio, 0) || region.germlineStatus != GermlineStatus::DIPLOID ||
-           region.observedTumorRatio - 3 > EPS || chromosome == "Y"){ continue; }
+           region.observedTumorRatio - 3 > EPS || chromosome == "Y" || (excludeAllosomes && chromosome == "X")){ continue; }
         result.push_back(&region);
     }
     return result;
 }
 
-std::vector<FittedPurity> fitPurityGrid(const std::vector<const ObservedRegion *> &regions, int averageTumorDepth, int threads){
+std::vector<FittedPurity> fitPurityGrid(const std::vector<const ObservedRegion *> &regions, int averageTumorDepth, int threads,
+        double ambiguousOverride){
     int totalBaf = 0;
     double weightedRatio = 0;
     for(const auto *region : regions){ totalBaf += region->bafCount; weightedRatio += region->bafCount * region->observedTumorRatio; }
     const double averageRatio = weightedRatio / totalBaf;
-    const double ambiguous = expectedBaf(averageTumorDepth);
+    const double ambiguous = ambiguousOverride >= 0 ? ambiguousOverride : expectedBaf(averageTumorDepth);
     std::vector<double> purities;
     for(double purity = 0.08; purity <= 1.0; purity = round2(purity + 0.01)){ purities.push_back(purity); }
     const auto ploidyValues = ploidies();
@@ -241,11 +242,14 @@ BestFit selectTumorOnlyBestFit(const std::vector<FittedPurity> &fits, const std:
 }
 
 std::vector<ObservedRegion> fitObservedRegions(
-        const std::vector<ObservedRegion> &regions, const FittedPurity &fit, int averageTumorDepth, Gender gender){
+        const std::vector<ObservedRegion> &regions, const FittedPurity &fit, int averageTumorDepth, Gender gender,
+        const std::vector<char> *halfAmbiguous){
     std::vector<ObservedRegion> result;
     result.reserve(regions.size());
-    const double ambiguous = expectedBaf(averageTumorDepth);
-    for(const auto &source : regions){
+    const double expectedAmbiguous = expectedBaf(averageTumorDepth);
+    for(size_t index = 0; index < regions.size(); ++index){
+        const auto &source = regions[index];
+        const double ambiguous = halfAmbiguous != nullptr && (*halfAmbiguous)[index] ? 0.5 : expectedAmbiguous;
         const std::string chromosome = lp::stripChrPrefix(source.segment.chromosome);
         if(chromosome == "Y" && gender == Gender::FEMALE){ continue; }
         const double germlineRatio = (chromosome == "X" || chromosome == "Y") && gender == Gender::MALE ? 0.5 : 1.0;

@@ -90,6 +90,12 @@ struct PhasingParameters
     // 用 longphase-to 的 LOH 段補回 AMBER 在高純度漏掉的 BAF 觀測（purple/PurpleLohFill.h）。
     // 預設開啟；--disable-purple-loh-fill 關閉。
     bool purpleLohFill = true;
+    // 以 phased SNV 的 haplotype 方向 HMM 估擬合段的 BAF，取代逐位點折疊的中位數
+    // （purple/PurplePhasedBaf.h）。預設關閉；--purple-phased-baf 開啟。
+    bool purplePhasedBaf = false;
+    // tumor-only 不以 X、Y 擬合純度（PURPLE 4.0～4.3 與官方 README 的 tumor-only 行為）。
+    // 預設關閉（同 4.4）；--purple-exclude-allosomes 開啟。
+    bool purpleExcludeAllosomes = false;
 
     bool amberEnabled() const { return !amberLoci.empty(); }
     bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }

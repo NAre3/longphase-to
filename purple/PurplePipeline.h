@@ -6,6 +6,7 @@
 #include "PurpleTypes.h"
 #include "PurpleSegmentation.h"
 #include "PurpleLohFill.h"
+#include "PurplePhasedBaf.h"
 
 namespace purple {
 
@@ -22,6 +23,8 @@ struct PipelineConfig
     std::string ensemblDataDir;
     std::string outputDir;
     int threads = 1;
+    // tumor-only 不以 X、Y 擬合（PurpleFitting.h selectFittingRegions）。
+    bool excludeAllosomes = false;
 };
 
 // ---- 為什麼這裡沒有 prescan / postscan ----
@@ -54,8 +57,11 @@ InputData loadInputs(const PipelineConfig &cfg);
 //   purple_port  -ref_genome 的 .fai
 //   整合版        BAM header @SQ（longphase-to 已開著 BAM，不再要 -ref_genome）
 // lohFill 非 nullptr 時，在 observed regions 算完後套用 LOH 補回（PurpleLohFill.h）。
+// phased 非 nullptr 時，擬合段的 BAF 改用 phased SNV 的 haplotype 方向 HMM（PurplePhasedBaf.h），
+// 擬合與擬合段的 copy number 以 0.5 作為平衡段的期望 BAF；非擬合段與 aneuploid 判斷維持原 BAF。
 void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
-        const ChromosomeLengths &lengths, const LohFillInput *lohFill = nullptr);
+        const ChromosomeLengths &lengths, const LohFillInput *lohFill = nullptr,
+        const PhasedSnvMap *phased = nullptr);
 
 // purple_port 的路徑：讀 .fai 取長度，載入五個 stage 檔案，然後跑完。
 void run(const PipelineConfig &cfg, const LohFillInput *lohFill = nullptr);
