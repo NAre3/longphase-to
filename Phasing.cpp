@@ -31,7 +31,7 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --loh                                  output LOH results. default: False\n\n"
 
 "somatic arguments:\n"
-"   --purity=[0~1]                         set sample purity directly; if omitted, estimate automatically.\n"
+"   --purity=[0~1]                         set sample purity directly; if omitted, use the PURPLE estimate (tumor DNA fraction).\n"
 "   --disable-calling                      disable longphase calling mode. default: False\n"
 "   --disable-pon-tag                      disable reading the VCF FILTER field PON to determine germline variants. default: False\n"
 "   --disable-refine-somatic               do not modify VCF FILTER based on somatic refinement. default: False\n"
@@ -64,15 +64,16 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --cobalt-output-dir=DIR                write <sample>.cobalt.ratio.tsv.gz, .cobalt.ratio.pcf and .cobalt.gc.median.tsv.\n"
 "   --cobalt-sample=NAME                   sample id used for the COBALT output file names.\n"
 "   --cobalt-min-map-quality=Num           COBALT mapping quality threshold. default:10\n"
-"   --ensembl_data_dir=DIR                 Ensembl data cache. enables PURPLE; requires the AMBER and COBALT options too.\n"
+"   --ensembl_data_dir=DIR                 Ensembl data cache for PURPLE. required, together with the AMBER and COBALT options.\n"
 "   --purple-output-dir=DIR                write the six PURPLE core outputs.\n"
 "   --purple-sample=NAME                   sample id used for the PURPLE output file names. default: --amber-sample\n"
 "   --disable-purple-loh-fill              do not fill AMBER BAF observations in longphase-to LOH segments before PURPLE fitting.\n"
 "                                          (the fill is on by default; it writes <sample>.purple.loh_fill.tsv)\n"
 "   --purple-cpdump-dir=DIR                write PURPLE checkpoint dumps (CP-P*) into DIR.\n"
-"   --purple-phased-baf                    estimate the BAF of fitting regions from the phased SNVs with a\n"
-"                                          haplotype-orientation HMM instead of the per-site folded median.\n"
-"   --purple-exclude-allosomes             tumor-only: exclude X and Y from purity fitting (PURPLE 4.0-4.3 behaviour).\n\n"
+"   --disable-purple-phased-baf            use the per-site folded median for the BAF of fitting regions instead of the\n"
+"                                          haplotype-orientation HMM over the first-round phased SNVs (the HMM is on by default).\n"
+"   --disable-purple-exclude-allosomes     tumor-only: fit purity on X too (PURPLE 4.4 behaviour). by default X and Y are\n"
+"                                          excluded from purity fitting (PURPLE 4.0-4.3 behaviour).\n\n"
 
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
@@ -101,7 +102,7 @@ enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, V
        COBALT_GC_PROFILE, COBALT_DIPLOID_BED, COBALT_EXCLUDED_REGIONS,
        PURPLE_ENSEMBL_DATA_DIR, PURPLE_OUTPUT_DIR, PURPLE_SAMPLE,
        COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY,
-       DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR, PURPLE_PHASED_BAF, PURPLE_EXCLUDE_ALLOSOMES};
+       DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR, DISABLE_PURPLE_PHASED_BAF, DISABLE_PURPLE_EXCLUDE_ALLOSOMES};
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -164,8 +165,8 @@ static const struct option longopts[] = {
     { "cobalt-min-map-quality", required_argument, NULL, COBALT_MIN_MAP_QUALITY },
     { "disable-purple-loh-fill", no_argument,     NULL, DISABLE_PURPLE_LOH_FILL },
     { "purple-cpdump-dir",    required_argument,  NULL, PURPLE_CPDUMP_DIR },
-    { "purple-phased-baf",    no_argument,        NULL, PURPLE_PHASED_BAF },
-    { "purple-exclude-allosomes", no_argument,    NULL, PURPLE_EXCLUDE_ALLOSOMES },
+    { "disable-purple-phased-baf", no_argument,   NULL, DISABLE_PURPLE_PHASED_BAF },
+    { "disable-purple-exclude-allosomes", no_argument, NULL, DISABLE_PURPLE_EXCLUDE_ALLOSOMES },
     { NULL, 0, NULL, 0 }
 };
 
@@ -307,8 +308,8 @@ namespace opt
     static std::string purpleSample="";
     static bool purpleLohFill=true;
     static std::string purpleCpDumpDir="";
-    static bool purplePhasedBaf=false;
-    static bool purpleExcludeAllosomes=false;
+    static bool purplePhasedBaf=true;
+    static bool purpleExcludeAllosomes=true;
 
     static bool outputLOH = false;
     static bool outputSGE = false;
@@ -431,8 +432,8 @@ void PhasingOptions(int argc, char** argv)
         case PURPLE_SAMPLE: arg >> opt::purpleSample; break;
         case DISABLE_PURPLE_LOH_FILL: opt::purpleLohFill=false; break;
         case PURPLE_CPDUMP_DIR: arg >> opt::purpleCpDumpDir; break;
-        case PURPLE_PHASED_BAF: opt::purplePhasedBaf=true; break;
-        case PURPLE_EXCLUDE_ALLOSOMES: opt::purpleExcludeAllosomes=true; break;
+        case DISABLE_PURPLE_PHASED_BAF: opt::purplePhasedBaf=false; break;
+        case DISABLE_PURPLE_EXCLUDE_ALLOSOMES: opt::purpleExcludeAllosomes=false; break;
         case COBALT_OUTPUT_DIR: arg >> opt::cobaltOutputDir; break;
         case COBALT_SAMPLE: arg >> opt::cobaltSample; break;
         case COBALT_MIN_MAP_QUALITY: arg >> opt::cobaltMinMapQuality; break;
@@ -495,15 +496,14 @@ void PhasingOptions(int argc, char** argv)
         die = true;
     }
 
-    // PURPLE 消費 AMBER 與 COBALT 的結果，缺任一邊都跑不了。
-    // 與上面同一個理由：寧可擋下來，也不要靜默不啟用讓使用者以為跑了。
+    // purity 由 PURPLE 決定，PURPLE 又消費 AMBER 與 COBALT 的結果，所以三者都是必填。
+    if(opt::purpleEnsemblDataDir.empty() || opt::amberLoci.empty() || opt::cobaltGcProfile.empty()){
+        std::cerr << SUBPROGRAM
+                  << ": purity is estimated by PURPLE, which needs --ensembl_data_dir and both the AMBER"
+                  << " (--amber-loci) and COBALT (--cobalt-gc-profile) options.\n";
+        die = true;
+    }
     if(!opt::purpleEnsemblDataDir.empty()){
-        if(opt::amberLoci.empty() || opt::cobaltGcProfile.empty()){
-            std::cerr << SUBPROGRAM
-                      << ": --ensembl_data_dir enables PURPLE, which needs both the AMBER"
-                      << " (--amber-loci) and COBALT (--cobalt-gc-profile) options.\n";
-            die = true;
-        }
         std::ifstream openDir((opt::purpleEnsemblDataDir + "/ensembl_gene_data.csv").c_str());
         if(!openDir.is_open()){
             std::cerr << "Ensembl data cache " << opt::purpleEnsemblDataDir
