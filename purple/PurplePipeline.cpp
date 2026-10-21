@@ -23,7 +23,7 @@ InputData loadInputs(const PipelineConfig &cfg)
     return loadTumorOnlyInputs(cfg.sampleId, cfg.amberDir, cfg.cobaltDir);
 }
 
-void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
+BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
         const ChromosomeLengths &lengths, const LohFillInput *lohFill, const PhasedSnvMap *phased)
 {
     // 這個函式的內容原本是 PurpleApplication.cpp 的 main() 主體。
@@ -85,6 +85,7 @@ void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
               << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
               << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
               << observed.size() << " observed regions, " << fits.size() << " purity/ploidy candidates\n";
+    return bestFit;
 }
 
 void run(const PipelineConfig &cfg, const LohFillInput *lohFill)

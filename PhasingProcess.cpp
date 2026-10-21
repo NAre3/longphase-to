@@ -409,25 +409,18 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     //
     // 染色體長度取自 cobaltPrescan.chromosomes，其來源是 BAM header @SQ
     // （cobalt/CobaltPipeline.cpp 的 loadChromosomes），因此不需要 -ref_genome。
-    // --purple-phased-baf 時 PURPLE 需要 phasing 結果，所以輸入在這裡備妥、執行延到 phasing 最終
-    // 輸出之後（見下方「PURPLE（phased 段 BAF）」）。phasing 不使用 PURPLE 的任何結果：purity 來自
-    // --purity 或 PurityCalculator，所以延後不影響 phasing。LOH 段在這裡先複製一份，與不延後時同一份資料。
-    const bool purpleDeferred = params.purpleEnabled() && params.purplePhasedBaf;
-    purple::PipelineConfig purpleCfgDeferred;
-    purple::InputData purpleInputsDeferred;
-    purple::ChromosomeLengths purpleLengthsDeferred;
-    purple::LohFillInput purpleLohFillDeferred;
-    if(params.purpleEnabled()){
-        std::cerr << std::endl;
-        begin = time(NULL);
-        if(!purpleDeferred){ std::cerr<< "PURPLE ... "; }
-
-        purple::ChromosomeLengths lengths;
+    // PURPLE 的最佳解決定 purity（見下方「PURPLE → purity」），purity 又決定第二輪 phasing 與
+    // methyl XGBoost refinement；phased 段 BAF 還需要第一輪 phasing 的結果。所以輸入在這裡備妥，
+    // PURPLE 在第一輪 phasing 之後、refinement 之前執行。LOH 段在這裡先複製一份。
+    purple::PipelineConfig purpleCfg;
+    purple::InputData purpleInputs;
+    purple::ChromosomeLengths purpleLengths;
+    purple::LohFillInput purpleLohFill;
+    {
         for(const cobalt::ChromosomeSpec &c : cobaltPrescan.chromosomes){
-            lengths[c.name] = c.length;
+            purpleLengths[c.name] = c.length;
         }
 
-        purple::PipelineConfig purpleCfg;
         purpleCfg.sampleId = params.purpleSampleId.empty() ? params.amberSampleId : params.purpleSampleId;
         purpleCfg.ensemblDataDir = params.purpleEnsemblDataDir;
         purpleCfg.outputDir = params.purpleOutputDir;
@@ -436,7 +429,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         // refGenome 刻意留空：長度已由 lengths 提供。
 
         lp::CpDump::setDir(params.purpleCpDumpDir);
-        const purple::InputData purpleInputs = purple::buildInputsFromMemory(
+        purpleInputs = purple::buildInputsFromMemory(
                 purpleCfg.sampleId,
                 amberResult.bafs, amberResult.segmentation,
                 cobaltResult.ratios, cobaltResult.segmentation,
@@ -445,39 +438,63 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         // _LOH.bed 同一份資料，ParsingBam.cpp 的 writeLOHSegments），位點清單用
         // --amber-loci 的原始檔（不套 tumor-only blacklist，見 purple/PurpleLohFill.h）。
         if(params.purpleLohFill){
-            purple::LohFillInput lohFill;
             for(const auto &entry : chrInfoMap){
                 const std::string chromosome = lp::stripChrPrefix(entry.first);
                 for(const auto &segment : entry.second.LOHSegments){
-                    lohFill.lohSpans[chromosome].push_back({segment.start, segment.end});
+                    purpleLohFill.lohSpans[chromosome].push_back({segment.start, segment.end});
                 }
             }
-            lohFill.panelPositions = purple::loadPanelPositions(params.amberLoci);
-            if(purpleDeferred){ purpleLohFillDeferred = lohFill; }
-            else{ purple::runFromInputs(purpleCfg, purpleInputs, lengths, &lohFill); }
-        }else if(!purpleDeferred){
-            purple::runFromInputs(purpleCfg, purpleInputs, lengths);
-        }
-
-        if(purpleDeferred){
-            purpleCfgDeferred = purpleCfg;
-            purpleInputsDeferred = purpleInputs;
-            purpleLengthsDeferred = lengths;
-        }else{
-            std::cerr<< difftime(time(NULL), begin) << "s\n";
+            purpleLohFill.panelPositions = purple::loadPanelPositions(params.amberLoci);
         }
     }
 
-    std::map<std::string, std::map<double, int>> mergedPloidyRatioMap;
-    for (const auto& chrInfo : chrInfoMap) {
-        mergedPloidyRatioMap[chrInfo.first] = chrInfo.second.ploidyRatioMap;
+    // ---- PURPLE → purity ----
+    // phased 段 BAF 取第一輪 phasing 的結果：先複製一份再 export（exportPhasingResult 只改寫傳入的
+    // PosPhasingResult，不動 graph），沒有第二輪時這份副本與最終 export 相同。取 VCF 會寫成
+    // GT 0|1／1|0 且有 PS 的 SNV（ParsingBam.cpp writeLine：GT＝genotype[0]，PS＝phaseSet[0] + 1，
+    // phaseSet ≤ 0 時寫 "."）。posPhasingResult 的 key 是 0-based，AMBER 是 1-based。
+    std::cerr << std::endl;
+    std::time_t purpleBegin = time(NULL);
+    std::cerr << "PURPLE ... ";
+    purple::PhasedSnvMap phased;
+    if(params.purplePhasedBaf){
+        std::vector<std::string> phasedChromosomes;
+        for(const auto &entry : chrInfoMap){
+            phasedChromosomes.push_back(entry.first);
+            phased[lp::stripChrPrefix(entry.first)];
+        }
+        #pragma omp parallel for schedule(dynamic) num_threads(params.numThreads)
+        for(int chrIdx = 0; chrIdx < static_cast<int>(phasedChromosomes.size()); chrIdx++){
+            ChrInfo &chrInfo = chrInfoMap.at(phasedChromosomes[chrIdx]);
+            PosPhasingResult firstRound = chrInfo.posPhasingResult;
+            if(chrInfo.vGraph != nullptr){ chrInfo.vGraph->exportPhasingResult(firstRound, chrInfo.LOHSegments); }
+            auto &target = phased.at(lp::stripChrPrefix(phasedChromosomes[chrIdx]));
+            for(const auto &posEntry : firstRound){
+                const PhasingResult &r = posEntry.second;
+                if(r.type != SNP || r.genotype.empty() || r.phaseSet.empty() || r.phaseSet[0] <= 0){ continue; }
+                if(r.genotype[0] != "0|1" && r.genotype[0] != "1|0"){ continue; }
+                target[posEntry.first + 1] = {r.genotype[0] == "1|0", r.phaseSet[0]};
+            }
+        }
     }
+    const purple::BestFit purpleFit = purple::runFromInputs(purpleCfg, purpleInputs, purpleLengths,
+            params.purpleLohFill ? &purpleLohFill : nullptr, params.purplePhasedBaf ? &phased : nullptr);
+    std::cerr<< difftime(time(NULL), purpleBegin) << "s\n";
+
+    // purity 沿用舊介面的名稱，值是 tumor DNA fraction：TDF = p·ψ / (p·ψ + 2(1 − p))，
+    // p、ψ 為 PURPLE 最佳解的 purity 與 ploidy。0.7／0.9 的 refinement 門檻定在這個尺度上。
+    // 舊的 PurityCalculator（PhasingGraph.h）保留但不再呼叫。
+    const double purplePurity = purpleFit.fit.purity;
+    const double purplePloidy = purpleFit.fit.ploidy;
+    const double purpleTdf = purplePurity * purplePloidy / (purplePurity * purplePloidy + 2 * (1 - purplePurity));
+    std::cerr << "PURPLE purity " << purplePurity << ", ploidy " << purplePloidy
+              << ", tumor DNA fraction " << purpleTdf << "\n";
     double purity = params.purity;
     if (purity < 0.0) {
-        purity = PurityCalculator::getPurity(mergedPloidyRatioMap, params.resultPrefix, params.caller, chrInfoMap, fastaParser.chrLength);
+        purity = purpleTdf;
     }
     std::cerr << std::endl;
-    std::cerr << "purity: " << purity << std::endl;
+    std::cerr << "purity: " << purity << (params.purity >= 0.0 ? " (--purity)" : "") << std::endl;
     const somatic_refinement::Plan refinementPlan =
         somatic_refinement::makeResolvedPlan(purity, params.enableMethylXgb);
     const bool highPurity = refinementPlan.convertNonGermlineToSomatic;
@@ -559,27 +576,6 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     }
 
     std::cerr<< "\nparsing total:  " << difftime(time(NULL), begin) << "s\n";
-
-    // ---- PURPLE（phased 段 BAF）----
-    // 取 VCF 會寫成 GT 0|1／1|0 且有 PS 的 SNV（ParsingBam.cpp writeLine：GT＝genotype[0]，
-    // PS＝phaseSet[0] + 1，phaseSet ≤ 0 時寫 "."）。posPhasingResult 的 key 是 0-based，AMBER 是 1-based。
-    if(purpleDeferred){
-        std::time_t purpleBegin = time(NULL);
-        std::cerr << "PURPLE (phased BAF) ... ";
-        purple::PhasedSnvMap phased;
-        for(const auto &chrEntry : chrPhasingResult){
-            auto &target = phased[lp::stripChrPrefix(chrEntry.first)];
-            for(const auto &posEntry : chrEntry.second){
-                const PhasingResult &r = posEntry.second;
-                if(r.type != SNP || r.genotype.empty() || r.phaseSet.empty() || r.phaseSet[0] <= 0){ continue; }
-                if(r.genotype[0] != "0|1" && r.genotype[0] != "1|0"){ continue; }
-                target[posEntry.first + 1] = {r.genotype[0] == "1|0", r.phaseSet[0]};
-            }
-        }
-        purple::runFromInputs(purpleCfgDeferred, purpleInputsDeferred, purpleLengthsDeferred,
-                params.purpleLohFill ? &purpleLohFillDeferred : nullptr, &phased);
-        std::cerr<< difftime(time(NULL), purpleBegin) << "s\n";
-    }
 
     // write result to file
     GenomicWriter genomicWriter(params.resultPrefix, chrName, chrInfoMap);

@@ -59,7 +59,8 @@ InputData loadInputs(const PipelineConfig &cfg);
 // lohFill 非 nullptr 時，在 observed regions 算完後套用 LOH 補回（PurpleLohFill.h）。
 // phased 非 nullptr 時，擬合段的 BAF 改用 phased SNV 的 haplotype 方向 HMM（PurplePhasedBaf.h），
 // 擬合與擬合段的 copy number 以 0.5 作為平衡段的期望 BAF；非擬合段與 aneuploid 判斷維持原 BAF。
-void runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
+// 回傳最佳解（與寫出的 purity.tsv 同一組 purity／ploidy）。
+BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
         const ChromosomeLengths &lengths, const LohFillInput *lohFill = nullptr,
         const PhasedSnvMap *phased = nullptr);
 
