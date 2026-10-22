@@ -25,6 +25,9 @@ struct PipelineConfig
     int threads = 1;
     // tumor-only 不以 X、Y 擬合（PurpleFitting.h selectFittingRegions）。
     bool excludeAllosomes = false;
+    // 以 LOH 段的 tumor DNA fraction 限制候選（PurpleLohTdf.h）。只在有 phased 段 BAF 時生效。
+    bool lohTdfWindow = false;
+    double lohTdfHalfWidth = 0.05;
 };
 
 // ---- 為什麼這裡沒有 prescan / postscan ----

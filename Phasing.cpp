@@ -73,7 +73,9 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --disable-purple-phased-baf            use the per-site folded median for the BAF of fitting regions instead of the\n"
 "                                          haplotype-orientation HMM over the first-round phased SNVs (the HMM is on by default).\n"
 "   --disable-purple-exclude-allosomes     tumor-only: fit purity on X too (PURPLE 4.4 behaviour). by default X and Y are\n"
-"                                          excluded from purity fitting (PURPLE 4.0-4.3 behaviour).\n\n"
+"                                          excluded from purity fitting (PURPLE 4.0-4.3 behaviour).\n"
+"   --disable-purple-loh-tdf-window        do not restrict PURPLE candidates to the tumor DNA fraction of LOH segments\n"
+"                                          (on by default with the phased BAF; it writes <sample>.purple.loh_tdf.tsv).\n\n"
 
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
@@ -102,7 +104,8 @@ enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, V
        COBALT_GC_PROFILE, COBALT_DIPLOID_BED, COBALT_EXCLUDED_REGIONS,
        PURPLE_ENSEMBL_DATA_DIR, PURPLE_OUTPUT_DIR, PURPLE_SAMPLE,
        COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY,
-       DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR, DISABLE_PURPLE_PHASED_BAF, DISABLE_PURPLE_EXCLUDE_ALLOSOMES};
+       DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR, DISABLE_PURPLE_PHASED_BAF, DISABLE_PURPLE_EXCLUDE_ALLOSOMES,
+       DISABLE_PURPLE_LOH_TDF_WINDOW};
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -167,6 +170,7 @@ static const struct option longopts[] = {
     { "purple-cpdump-dir",    required_argument,  NULL, PURPLE_CPDUMP_DIR },
     { "disable-purple-phased-baf", no_argument,   NULL, DISABLE_PURPLE_PHASED_BAF },
     { "disable-purple-exclude-allosomes", no_argument, NULL, DISABLE_PURPLE_EXCLUDE_ALLOSOMES },
+    { "disable-purple-loh-tdf-window", no_argument, NULL, DISABLE_PURPLE_LOH_TDF_WINDOW },
     { NULL, 0, NULL, 0 }
 };
 
@@ -310,6 +314,7 @@ namespace opt
     static std::string purpleCpDumpDir="";
     static bool purplePhasedBaf=true;
     static bool purpleExcludeAllosomes=true;
+    static bool purpleLohTdfWindow=true;
 
     static bool outputLOH = false;
     static bool outputSGE = false;
@@ -434,6 +439,7 @@ void PhasingOptions(int argc, char** argv)
         case PURPLE_CPDUMP_DIR: arg >> opt::purpleCpDumpDir; break;
         case DISABLE_PURPLE_PHASED_BAF: opt::purplePhasedBaf=false; break;
         case DISABLE_PURPLE_EXCLUDE_ALLOSOMES: opt::purpleExcludeAllosomes=false; break;
+        case DISABLE_PURPLE_LOH_TDF_WINDOW: opt::purpleLohTdfWindow=false; break;
         case COBALT_OUTPUT_DIR: arg >> opt::cobaltOutputDir; break;
         case COBALT_SAMPLE: arg >> opt::cobaltSample; break;
         case COBALT_MIN_MAP_QUALITY: arg >> opt::cobaltMinMapQuality; break;
@@ -811,6 +817,7 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.purpleCpDumpDir = opt::purpleCpDumpDir;
     ecParams.purplePhasedBaf = opt::purplePhasedBaf;
     ecParams.purpleExcludeAllosomes = opt::purpleExcludeAllosomes;
+    ecParams.purpleLohTdfWindow = opt::purpleLohTdfWindow;
     ecParams.cobaltMinMapQuality = opt::cobaltMinMapQuality;
 
     PhasingProcess processor(ecParams);

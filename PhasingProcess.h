@@ -96,6 +96,9 @@ struct PhasingParameters
     // tumor-only 不以 X、Y 擬合純度（PURPLE 4.0～4.3 與官方 README 的 tumor-only 行為）。
     // 預設開啟；--disable-purple-exclude-allosomes 關閉（同 4.4，只排除 Y）。
     bool purpleExcludeAllosomes = true;
+    // 以 LOH 段的 tumor DNA fraction 限制 PURPLE 的候選（purple/PurpleLohTdf.h），只在 phased 段 BAF 開啟時生效。
+    // 預設開啟；--disable-purple-loh-tdf-window 關閉。
+    bool purpleLohTdfWindow = true;
 
     bool amberEnabled() const { return !amberLoci.empty(); }
     bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }
