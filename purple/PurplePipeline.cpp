@@ -12,6 +12,7 @@
 #include "PurpleSummary.h"
 #include "PurpleWriters.h"
 #include "PurplePhasedBaf.h"
+#include "PurpleLohTdf.h"
 #include "common/HumanChromosome.h"
 
 #include <set>
@@ -49,10 +50,11 @@ BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
     // aneuploid 判斷（selectTumorOnlyBestFit）仍用原 observed：它的 0.57 門檻是針對折疊後的 BAF 定的。
     std::vector<ObservedRegion> observedPhased;
     std::vector<char> halfAmbiguous;
+    std::vector<ObservedRegion *> targets;
+    PhasedBafResult phasedResult;
     if(phased != nullptr){
         observedPhased = observed;
         halfAmbiguous.assign(observed.size(), 0);
-        std::vector<ObservedRegion *> targets;
         for(const ObservedRegion *region : fittingRegions){
             const size_t index = static_cast<size_t>(region - observed.data());
             halfAmbiguous[index] = 1;
@@ -60,7 +62,7 @@ BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
         }
         std::set<std::pair<std::string, int>> filledKeys;
         for(const auto &record : fill.filled){ filledKeys.insert({lp::stripChrPrefix(record.chromosome), record.start}); }
-        const auto phasedResult = applyPhasedBaf(targets, inputs.bafs, *phased, filledKeys);
+        phasedResult = applyPhasedBaf(targets, inputs.bafs, *phased, filledKeys);
         dumpPhasedBaf(targets, phasedResult);
         std::cerr << "PURPLE phased BAF: kappa " << phasedResult.kappa << ", switch " << phasedResult.switchProbability
                   << ", " << phasedResult.regionsUpdated << " of " << targets.size() << " fitting regions updated\n";
@@ -68,7 +70,21 @@ BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
     }
     const auto fits = fitPurityGrid(fittingRegions, inputs.averageTumorDepth, cfg.threads, phased != nullptr ? 0.5 : -1);
     dumpPurityGrid(fits);
-    const auto bestFit = selectTumorOnlyBestFit(fits, observed);
+    // LOH 段的 tumor DNA fraction 限制候選（PurpleLohTdf.h）。purity.range.tsv 仍寫完整格點；
+    // 選解（含 NO_TUMOR 判斷與 purity.tsv 的分數範圍欄）只看範圍內的候選。
+    LohTdfEstimate lohTdf;
+    std::vector<FittedPurity> windowFits;
+    const bool useLohTdf = phased != nullptr && cfg.lohTdfWindow;
+    if(useLohTdf){
+        lohTdf = estimateLohTdf(targets, phasedResult);
+        if(lohTdf.valid){ windowFits = restrictToTdfWindow(fits, lohTdf.f0, cfg.lohTdfHalfWidth); }
+        std::cerr << "PURPLE LOH TDF window: "
+                  << (lohTdf.valid ? "f0 " + std::to_string(lohTdf.f0) : std::string("no segments"))
+                  << " from " << lohTdf.segments.size() << " segments, " << windowFits.size() << " of "
+                  << fits.size() << " candidates within " << cfg.lohTdfHalfWidth
+                  << (windowFits.empty() ? " (not applied)" : "") << "\n";
+    }
+    const auto bestFit = selectTumorOnlyBestFit(windowFits.empty() ? fits : windowFits, observed);
     dumpBestFit(bestFit);
     const auto fittedRegions = phased != nullptr
             ? fitObservedRegions(observedPhased, bestFit.fit, inputs.averageTumorDepth, inputs.cobaltGender, &halfAmbiguous)
@@ -81,6 +97,7 @@ BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
     writeCoreOutputs(cfg.outputDir, inputs, fits, bestFit, fittedRegions, copyNumbers, summary);
     // 放在 writeCoreOutputs 之後：輸出目錄由它建立。
     if(lohFill != nullptr){ writeLohFillTsv(cfg.outputDir, inputs.sampleId, fill); }
+    if(useLohTdf){ writeLohTdfTsv(cfg.outputDir, inputs.sampleId, lohTdf, cfg.lohTdfHalfWidth, windowFits.size(), fits.size()); }
     std::cerr << "PURPLE core outputs written: " << inputs.bafs.size() << " BAF, "
               << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
               << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
