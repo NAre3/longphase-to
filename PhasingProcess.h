@@ -99,6 +99,9 @@ struct PhasingParameters
     // 以 LOH 段的 tumor DNA fraction 限制 PURPLE 的候選（purple/PurpleLohTdf.h），只在 phased 段 BAF 開啟時生效。
     // 預設開啟；--disable-purple-loh-tdf-window 關閉。
     bool purpleLohTdfWindow = true;
+    // 段格點尺度檢查與改值（purple/PurpleScaleCheck.h），只在 LOH-TDF 窗有效時改值。
+    // 預設開啟；--disable-purple-scale-correction 關閉。
+    bool purpleScaleCorrection = true;
 
     bool amberEnabled() const { return !amberLoci.empty(); }
     bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }

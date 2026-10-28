@@ -427,6 +427,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         purpleCfg.threads = params.numThreads;
         purpleCfg.excludeAllosomes = params.purpleExcludeAllosomes;
         purpleCfg.lohTdfWindow = params.purpleLohTdfWindow;
+        purpleCfg.scaleCorrection = params.purpleScaleCorrection;
         // refGenome 刻意留空：長度已由 lengths 提供。
 
         lp::CpDump::setDir(params.purpleCpDumpDir);

@@ -28,6 +28,8 @@ struct PipelineConfig
     // 以 LOH 段的 tumor DNA fraction 限制候選（PurpleLohTdf.h）。只在有 phased 段 BAF 時生效。
     bool lohTdfWindow = false;
     double lohTdfHalfWidth = 0.05;
+    // 段格點尺度檢查與改值（PurpleScaleCheck.h）。purple_port 預設關閉；整合版預設開啟（PhasingProcess.h）。
+    bool scaleCorrection = false;
 };
 
 // ---- 為什麼這裡沒有 prescan / postscan ----

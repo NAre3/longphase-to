@@ -13,6 +13,7 @@
 #include "PurpleWriters.h"
 #include "PurplePhasedBaf.h"
 #include "PurpleLohTdf.h"
+#include "PurpleScaleCheck.h"
 #include "common/HumanChromosome.h"
 
 #include <set>
@@ -84,19 +85,43 @@ BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
                   << fits.size() << " candidates within " << cfg.lohTdfHalfWidth
                   << (windowFits.empty() ? " (not applied)" : "") << "\n";
     }
-    const auto bestFit = selectTumorOnlyBestFit(windowFits.empty() ? fits : windowFits, observed);
+    auto bestFit = selectTumorOnlyBestFit(windowFits.empty() ? fits : windowFits, observed);
     dumpBestFit(bestFit);
-    const auto fittedRegions = phased != nullptr
-            ? fitObservedRegions(observedPhased, bestFit.fit, inputs.averageTumorDepth, inputs.cobaltGender, &halfAmbiguous)
-            : fitObservedRegions(observed, bestFit.fit, inputs.averageTumorDepth, inputs.cobaltGender);
+    const auto fitRegions = [&](const FittedPurity &fit){
+        return phased != nullptr
+                ? fitObservedRegions(observedPhased, fit, inputs.averageTumorDepth, inputs.cobaltGender, &halfAmbiguous)
+                : fitObservedRegions(observed, fit, inputs.averageTumorDepth, inputs.cobaltGender);
+    };
+    auto fittedRegions = fitRegions(bestFit.fit);
     dumpFittedRegions(fittedRegions);
-    const auto copyNumbers = buildCopyNumbers(fittedRegions, bestFit.fit, inputs.cobaltGender);
+    auto copyNumbers = buildCopyNumbers(fittedRegions, bestFit.fit, inputs.cobaltGender);
     dumpCopyNumbers(copyNumbers);
+    // 段格點尺度檢查（PurpleScaleCheck.h）：判 ×2 且 ψ ≥ 2 時改選 2ψ 附近的格點候選，
+    // 之後的 fitted regions、copy number 與所有輸出都用改後的解；CP-P6～P8 以改後的值覆寫。
+    // 分數範圍欄（purity.tsv 的 min／max）沿用原選解的值。
+    ScaleCheck scaleCheck;
+    const FittedPurity originalFit = bestFit.fit;
+    if(cfg.scaleCorrection){
+        scaleCheck = checkScale(copyNumbers, bestFit.fit, fits, useLohTdf && lohTdf.valid, lohTdf.f0);
+        std::cerr << "PURPLE scale check: s* " << scaleCheck.sMax << ", A " << scaleCheck.aMax << " over "
+                  << scaleCheck.segments << " segments, " << (scaleCheck.computed ? scaleCheck.decision : std::string("NA"))
+                  << (scaleCheck.applied ? ", ploidy " + std::to_string(bestFit.fit.ploidy) + " -> " + std::to_string(scaleCheck.candidate.ploidy)
+                                         : std::string(", not applied")) << "\n";
+        if(scaleCheck.applied){
+            bestFit.fit = scaleCheck.candidate;
+            dumpBestFit(bestFit);
+            fittedRegions = fitRegions(bestFit.fit);
+            dumpFittedRegions(fittedRegions);
+            copyNumbers = buildCopyNumbers(fittedRegions, bestFit.fit, inputs.cobaltGender);
+            dumpCopyNumbers(copyNumbers);
+        }
+    }
     const auto summary = buildSummaryContext(inputs, bestFit, copyNumbers, cfg.ensemblDataDir);
     dumpSummaryContext(inputs, bestFit, copyNumbers, summary);
     writeCoreOutputs(cfg.outputDir, inputs, fits, bestFit, fittedRegions, copyNumbers, summary);
     // 放在 writeCoreOutputs 之後：輸出目錄由它建立。
     if(lohFill != nullptr){ writeLohFillTsv(cfg.outputDir, inputs.sampleId, fill); }
+    if(cfg.scaleCorrection){ writeScaleCheckTsv(cfg.outputDir, inputs.sampleId, scaleCheck, originalFit); }
     if(useLohTdf){ writeLohTdfTsv(cfg.outputDir, inputs.sampleId, lohTdf, cfg.lohTdfHalfWidth, windowFits.size(), fits.size()); }
     std::cerr << "PURPLE core outputs written: " << inputs.bafs.size() << " BAF, "
               << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "

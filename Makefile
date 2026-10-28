@@ -57,7 +57,7 @@ PURPLE_OBJ = $(OBJDIR)/purple/PurplePipeline.o $(OBJDIR)/purple/PurpleInput.o \
              $(OBJDIR)/purple/PurpleCopyNumber.o $(OBJDIR)/purple/PurpleSummary.o \
              $(OBJDIR)/purple/PurpleWriters.o $(OBJDIR)/purple/PurpleLohFill.o \
              $(OBJDIR)/purple/PurplePhasedBaf.o \
-             $(OBJDIR)/purple/PurpleLohTdf.o
+             $(OBJDIR)/purple/PurpleLohTdf.o $(OBJDIR)/purple/PurpleScaleCheck.o
 
 # -ffp-contract=off 是**保真度旗標，不是最佳化偏好**：它決定 NoiseFloor 的 CDF
 # 是否與獨立執行的 amber_port 逐位元組相同（FMA 收縮會改變部分 CDF 值，見 amber/Makefile），
