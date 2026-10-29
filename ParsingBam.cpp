@@ -30,6 +30,52 @@ FastaParser::FastaParser(std::string fastaFile,  std::vector<std::string> chrNam
     faidx_t *fai = NULL;
     fai = fai_load(fastaFile.c_str());
     
+    // Fetch the chromosome sequences in parallel. Each fetch is independent:
+    // it opens its own faidx handle (faidx_t is not shared between threads)
+    // and makes exactly the same faidx_fetch_seq call as the serial loop
+    // below, storing the returned buffer and length by chromosome index.
+    // Everything else (messages, map updates, string copies, frees) stays in
+    // the serial loop, in the original chromosome order.
+    // The parallel fetch is used only when every chromosome that will be
+    // fetched is in the index (faidx_has_seq is the same silent lookup that
+    // faidx_fetch_seq starts with); otherwise the serial loop fetches them all
+    // itself, so a missing name is reported and fails where it did before.
+    // htslib logging is off while the workers run; a chromosome whose worker
+    // could not load the index or fetch is fetched again by the serial loop
+    // with the main handle, which reports any error at its original position.
+    std::vector<char*> fetchedSeq(chrName.size(), NULL);
+    std::vector<int> fetchedLen(chrName.size(), 0);
+    std::vector<char> fetchFailed(chrName.size(), 0);
+    bool prefetched = (fai != NULL && numThreads > 1 && last_pos.size() == chrName.size());
+    for(int index = 0 ; prefetched && index < (int)chrName.size() ; index++){
+        if( last_pos[index] != -1 && !faidx_has_seq(fai, chrName[index].c_str()) ){
+            prefetched = false;
+        }
+    }
+    if( prefetched ){
+        const enum htsLogLevel savedLogLevel = hts_get_log_level();
+        hts_set_log_level(HTS_LOG_OFF);
+        #pragma omp parallel for schedule(dynamic,1) num_threads(numThreads)
+        for(int index = 0 ; index < (int)chrName.size() ; index++){
+            if( last_pos.at(index) == -1){
+                continue;
+            }
+            faidx_t *threadFai = fai_load(fastaFile.c_str());
+            if( threadFai == NULL ){
+                fetchFailed[index] = 1;
+                continue;
+            }
+            int ref_len = 0;
+            fetchedSeq[index] = faidx_fetch_seq(threadFai , chrName[index].c_str() , 0 , last_pos.at(index)+5 , &ref_len);
+            fetchedLen[index] = ref_len;
+            if( fetchedSeq[index] == NULL ){
+                fetchFailed[index] = 1;
+            }
+            fai_destroy(threadFai);
+        }
+        hts_set_log_level(savedLogLevel);
+    }
+
     // iterating all chr
     for(std::vector<std::string>::iterator iter = chrName.begin() ; iter != chrName.end() ; iter++){
         
@@ -45,7 +91,18 @@ FastaParser::FastaParser(std::string fastaFile,  std::vector<std::string> chrNam
         int ref_len = 0;
 
         // read file
-        char *seq_ptr = faidx_fetch_seq(fai , (*iter).c_str() , 0 , last_pos.at(index)+5 , &ref_len);
+        char *seq_ptr;
+        if( prefetched && !fetchFailed[index] ){
+            seq_ptr = fetchedSeq[index];
+            ref_len = fetchedLen[index];
+        }
+        else{
+            seq_ptr = faidx_fetch_seq(fai , (*iter).c_str() , 0 , last_pos.at(index)+5 , &ref_len);
+        }
+        if(seq_ptr == NULL){
+            std::cerr<<"ERROR: " << (*iter) << " not found in reference " << fastaFile << "\n";
+            exit(1);
+        }
         if(ref_len == 0){
             std::cout<<"nothing in reference file \n";
         }
@@ -344,6 +401,27 @@ void BaseVairantParser::unCompressInput(std::string variantFile, std::string res
     }
 }
 
+// Split on the characters the classic "C" locale classifies as space (' ', \t, \n, \v, \f, \r),
+// skipping runs of them: the tokens std::istream_iterator<std::string> yields from an istringstream
+// under the default global locale (the program never changes it). Reuses the strings already in out.
+static void splitOnClassicSpace(const std::string &input, std::vector<std::string> &out){
+    const char *p = input.data();
+    const char *end = p + input.size();
+    size_t n = 0;
+    auto isSpace = [](char c){ return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r'; };
+    while( true ){
+        while( p < end && isSpace(*p) ) ++p;
+        if( p == end ) break;
+        const char *q = p;
+        while( q < end && !isSpace(*q) ) ++q;
+        if( n < out.size() ) out[n].assign(p, q - p);
+        else out.emplace_back(p, q - p);
+        ++n;
+        p = q;
+    }
+    out.resize(n);
+}
+
 void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, ChrPhasingResult &chrPhasingResult){
     // header
     if( input.substr(0, 2) == "##" ){
@@ -389,8 +467,20 @@ void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, 
         resultVcf << input << "\n";
     }
     else{
-        std::istringstream iss(input);
-        std::vector<std::string> fields((std::istream_iterator<std::string>(iss)),std::istream_iterator<std::string>());
+        // same tokens as std::istream_iterator<std::string> on an istringstream (classic-locale
+        // whitespace), written into a vector reused across lines
+        splitOnClassicSpace(input, writeFields);
+        // A line with fewer than SAMPLE+1 fields is indexed past its end below, as in the original
+        // code. Such a line gets a vector built for it alone, grown one element at a time like the
+        // original istream_iterator construction (same size and capacity), instead of the reused one.
+        std::vector<std::string> shortFields;
+        const bool shortLine = writeFields.size() <= static_cast<size_t>(SAMPLE);
+        if( shortLine ){
+            for(size_t i = 0; i < writeFields.size(); ++i){
+                shortFields.emplace_back(std::move(writeFields[i]));
+            }
+        }
+        std::vector<std::string> &fields = shortLine ? shortFields : writeFields;
         if( fields.size() == 0 )
             return;
         FormatSample formatSample(fields);
@@ -444,12 +534,16 @@ void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, 
             }
         }
 
+        // build the whole line, then hand it to the stream once (same bytes, same order)
+        std::string &outLine = writeLineBuf;
+        outLine.clear();
         for(std::vector<std::string>::iterator fieldIter = fields.begin(); fieldIter != fields.end(); ++fieldIter){
             if( fieldIter != fields.begin() )
-                resultVcf<< "\t";
-            resultVcf << (*fieldIter);
+                outLine.push_back('\t');
+            outLine.append(*fieldIter);
         }
-        resultVcf << "\n";
+        outLine.push_back('\n');
+        resultVcf.write(outLine.data(), outLine.size());
     }
 }
 
@@ -1111,7 +1205,8 @@ std::map<int, std::map<std::string ,bool> > SVParser::getVariants(std::string ch
     return targetVariants;
 }
 
-void SVParser::writeResult(ChrPhasingResult &chrPhasingResult){
+void SVParser::writeResult(ChrPhasingResult &chrPhasingResult, double purity){
+    this->purity = purity;
     
     if( params->svFile.find("gz") != std::string::npos ){
         // .vcf.gz 
@@ -1340,8 +1435,16 @@ bool processCigarOperation(const uint32_t *cigar, int &cigarIndex, int cigarInde
     return false;
 }
 
-// windowSize must stay within int8_t range (offsets are stored as int8_t)
-void getOrderWindowsDiffRef(const uint32_t *cigar, int cigarIndex, const bam1_t &aln, const std::string &refString, int readPos, int remainingBases, int refPos, int direction, std::vector<int8_t> &offsets, int windowSize = 100){
+// Window size of the diff-ref walk (develop's default argument, the only value ever used).
+// Offsets are stored as int8_t, so every offset (+-1 .. +-kDiffRefWindow) must fit in int8_t;
+// the window is a compile-time constant so no caller can pass a size that would narrow.
+static const int kDiffRefWindow = 100;
+static_assert(kDiffRefWindow >= 1 && kDiffRefWindow <= 127, "diff-ref offsets are stored as int8_t");
+
+// Writes the offsets of this direction to out (at most kDiffRefWindow entries) and returns how many.
+int getOrderWindowsDiffRef(const uint32_t *cigar, int cigarIndex, const bam1_t &aln, const std::string &refString, int readPos, int remainingBases, int refPos, int direction, int8_t *out){
+    const int windowSize = kDiffRefWindow;
+    int count = 0;
     const int cigarIndexEnd = aln.core.n_cigar;
     const int readLen = aln.core.l_qseq;
     const int refLen = refString.length();
@@ -1359,21 +1462,21 @@ void getOrderWindowsDiffRef(const uint32_t *cigar, int cigarIndex, const bam1_t 
                 readPos += direction;
                 refPos += direction;
                 if (readPos > readLen || refPos > refLen || readPos < 0 || refPos < 0) {
-                    return;
+                    return count;
                 }
                 if (seq_nt16_str[bam_seqi(seq, readPos)] != refString[refPos]){
-                    offsets.push_back(static_cast<int8_t>(i * direction));
+                    out[count++] = static_cast<int8_t>(i * direction);
                 }
             }
             if (i > windowSize){
-                return;
+                return count;
             }
         }
         remainingBases-- ;
         // next cigar
         if (remainingBases == 0 || remainingBases == -1){
             if(!processCigarOperation(cigar, cigarIndex, cigarIndexEnd, direction, remainingBases, readPos, refPos, cigarOp)){
-                return;
+                return count;
             }
         }
         if (cigarOp == DELETION || cigarOp == SKIP || cigarOp == N || cigarOp == EQ){
@@ -1382,17 +1485,18 @@ void getOrderWindowsDiffRef(const uint32_t *cigar, int cigarIndex, const bam1_t 
         readPos += direction;
         refPos += direction;
         if (readPos > readLen || refPos > refLen || readPos < 0 || refPos < 0) {
-            return;
+            return count;
         }
         char read_base = seq_nt16_str[bam_seqi(seq, readPos)];
         char ref_base = refString[refPos];
         if (read_base != ref_base){
-            offsets.push_back(static_cast<int8_t>(i * direction));
+            out[count++] = static_cast<int8_t>(i * direction);
         }
     }
+    return count;
 }
 
-void getWindowsDiffRef(const uint32_t *cigar, int cigarIndex, const bam1_t &aln, const std::string &refString, int readPos, int readOffset, int refPos, std::vector<int8_t> &offsets, int windowSize = 100){
+void getWindowsDiffRef(const uint32_t *cigar, int cigarIndex, const bam1_t &aln, const std::string &refString, int readPos, int readOffset, int refPos, std::vector<int8_t> &offsets){
     const int cigarOpLen = bam_cigar_oplen(cigar[cigarIndex]);
     const int cigarOp = bam_cigar_op(cigar[cigarIndex]);
     int ForwardRemainingBases = 0;
@@ -1403,8 +1507,21 @@ void getWindowsDiffRef(const uint32_t *cigar, int cigarIndex, const bam1_t &aln,
         ReversRemainingBases = readOffset > 0 ? readOffset : 0;
     }
 
-    getOrderWindowsDiffRef(cigar, cigarIndex, aln, refString, readPos, ReversRemainingBases, refPos, -1, offsets, windowSize);
-    getOrderWindowsDiffRef(cigar, cigarIndex, aln, refString, readPos, ForwardRemainingBases, refPos, 1, offsets, windowSize);
+    // Collect both directions in a local buffer and append once (same values, same order) instead
+    // of growing offsets by push_back. Reserve the capacity that push_back doubling would have
+    // reached, so the allocation kept until addEdge has the same size as before, in one allocation.
+    // each direction writes at most kDiffRefWindow offsets
+    int8_t buf[2 * kDiffRefWindow];
+    int count = getOrderWindowsDiffRef(cigar, cigarIndex, aln, refString, readPos, ReversRemainingBases, refPos, -1, buf);
+    count += getOrderWindowsDiffRef(cigar, cigarIndex, aln, refString, readPos, ForwardRemainingBases, refPos, 1, buf + count);
+    if (count > 0){
+        size_t cap = offsets.capacity();
+        while (cap < offsets.size() + static_cast<size_t>(count)){
+            cap = cap ? 2 * cap : 1;
+        }
+        offsets.reserve(cap);
+    }
+    offsets.insert(offsets.end(), buf, buf + count);
 }
 
 static bool isCanonicalBaseCode(char base){
@@ -1844,6 +1961,7 @@ void BamParser::get_snp(const bam_hdr_t &bamHdr, const bam1_t &aln, std::vector<
                     
                     // The position of the variant exceeds the length of the read.
                     if( query_pos + offset + 1 > int(aln.core.l_qseq) ){
+                        delete tmpReadResult;
                         return;
                     }
 
@@ -1957,6 +2075,7 @@ void BamParser::get_snp(const bam_hdr_t &bamHdr, const bam1_t &aln, std::vector<
                         int base_q = VARIANT_UNDEFINED;
                         
                         if( query_pos + 1 > aln.core.l_qseq ){
+                            delete tmpReadResult;
                             return;
                         }
 
@@ -2097,7 +2216,8 @@ METHParser::METHParser(PhasingParameters &in_params, SnpParser &in_snpFile, SVPa
     }
 }
 
-void METHParser::writeResult(ChrPhasingResult &chrPhasingResult){
+void METHParser::writeResult(ChrPhasingResult &chrPhasingResult, double purity){
+    this->purity = purity;
     
     if( params->modFile.find("gz") != std::string::npos ){
         // .vcf.gz 
