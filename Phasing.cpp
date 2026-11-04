@@ -69,6 +69,7 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --purple-sample=NAME                   sample id used for the PURPLE output file names. default: --amber-sample\n"
 "   --disable-purple-loh-fill              do not fill AMBER BAF observations in longphase-to LOH segments before PURPLE fitting.\n"
 "                                          (the fill is on by default; it writes <sample>.purple.loh_fill.tsv)\n"
+"   --purple-loh-fill-min-coverage=Num     minimum fraction of a segment covered by longphase-to LOH for the fill. default:0.8\n"
 "   --purple-cpdump-dir=DIR                write PURPLE checkpoint dumps (CP-P*) into DIR.\n"
 "   --disable-purple-phased-baf            use the per-site folded median for the BAF of fitting regions instead of the\n"
 "                                          haplotype-orientation HMM over the first-round phased SNVs (the HMM is on by default).\n"
@@ -108,7 +109,8 @@ enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, V
        PURPLE_ENSEMBL_DATA_DIR, PURPLE_OUTPUT_DIR, PURPLE_SAMPLE,
        COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY,
        DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR, DISABLE_PURPLE_PHASED_BAF, DISABLE_PURPLE_EXCLUDE_ALLOSOMES,
-       DISABLE_PURPLE_LOH_TDF_WINDOW, DISABLE_PURPLE_SCALE_CORRECTION};
+       DISABLE_PURPLE_LOH_TDF_WINDOW, DISABLE_PURPLE_SCALE_CORRECTION,
+       PURPLE_LOH_FILL_MIN_COVERAGE = 126};  // '~': the next enum value would be '1' (49), a short option; getopt_long's result is stored in a char, so it must stay <= 127
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -170,6 +172,7 @@ static const struct option longopts[] = {
     { "cobalt-sample",        required_argument,  NULL, COBALT_SAMPLE },
     { "cobalt-min-map-quality", required_argument, NULL, COBALT_MIN_MAP_QUALITY },
     { "disable-purple-loh-fill", no_argument,     NULL, DISABLE_PURPLE_LOH_FILL },
+    { "purple-loh-fill-min-coverage", required_argument, NULL, PURPLE_LOH_FILL_MIN_COVERAGE },
     { "purple-cpdump-dir",    required_argument,  NULL, PURPLE_CPDUMP_DIR },
     { "disable-purple-phased-baf", no_argument,   NULL, DISABLE_PURPLE_PHASED_BAF },
     { "disable-purple-exclude-allosomes", no_argument, NULL, DISABLE_PURPLE_EXCLUDE_ALLOSOMES },
@@ -315,6 +318,7 @@ namespace opt
     static std::string purpleOutputDir="";
     static std::string purpleSample="";
     static bool purpleLohFill=true;
+    static double purpleLohFillMinCoverage=0.8;
     static std::string purpleCpDumpDir="";
     static bool purplePhasedBaf=true;
     static bool purpleExcludeAllosomes=true;
@@ -441,6 +445,7 @@ void PhasingOptions(int argc, char** argv)
         case PURPLE_OUTPUT_DIR: arg >> opt::purpleOutputDir; break;
         case PURPLE_SAMPLE: arg >> opt::purpleSample; break;
         case DISABLE_PURPLE_LOH_FILL: opt::purpleLohFill=false; break;
+        case PURPLE_LOH_FILL_MIN_COVERAGE: arg >> opt::purpleLohFillMinCoverage; break;
         case PURPLE_CPDUMP_DIR: arg >> opt::purpleCpDumpDir; break;
         case DISABLE_PURPLE_PHASED_BAF: opt::purplePhasedBaf=false; break;
         case DISABLE_PURPLE_EXCLUDE_ALLOSOMES: opt::purpleExcludeAllosomes=false; break;
@@ -820,6 +825,7 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.purpleOutputDir = opt::purpleOutputDir;
     ecParams.purpleSampleId = opt::purpleSample;
     ecParams.purpleLohFill = opt::purpleLohFill;
+    ecParams.purpleLohFillMinCoverage = opt::purpleLohFillMinCoverage;
     ecParams.purpleCpDumpDir = opt::purpleCpDumpDir;
     ecParams.purplePhasedBaf = opt::purplePhasedBaf;
     ecParams.purpleExcludeAllosomes = opt::purpleExcludeAllosomes;

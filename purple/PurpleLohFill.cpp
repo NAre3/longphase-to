@@ -18,7 +18,6 @@ namespace purple {
 namespace {
 
 constexpr double EPS = 1e-10;
-constexpr double MIN_COVERAGE = 0.9;
 constexpr double MAX_NON_LOH_COVERAGE = 0.1;
 constexpr double MAX_RETENTION = 0.3;
 
@@ -128,7 +127,7 @@ LohFillResult applyLohFill(std::vector<ObservedRegion> &regions, const LohFillIn
     result.ret = static_cast<double>(sumBaf) / static_cast<double>(sumPanel);
     for(std::size_t i = 0; i < regions.size(); ++i){
         auto &region = regions[i];
-        if(!fillable(region) || !(cov[i] >= MIN_COVERAGE) || pan[i] <= 0){ continue; }
+        if(!fillable(region) || !(cov[i] >= input.minCoverage) || pan[i] <= 0){ continue; }
         const double expected = result.ret * pan[i];
         const double retention = region.bafCount / expected;
         if(!(retention < MAX_RETENTION)){ continue; }

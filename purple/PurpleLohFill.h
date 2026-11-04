@@ -30,6 +30,7 @@ struct LohFillInput
 {
     std::map<std::string, std::vector<std::pair<int, int>>> lohSpans;
     std::map<std::string, std::vector<int>> panelPositions;  // 已排序
+    double minCoverage = 0.8;  // 段被 LOH 區間涵蓋的最低比例。原為 0.9（ss SNV-only 時期設定，未掃描）；ssrs 下掃描 0.9/0.85/0.8/0.7 後改 0.8
 };
 
 struct LohFillRecord

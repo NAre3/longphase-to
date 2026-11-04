@@ -90,6 +90,7 @@ struct PhasingParameters
     // 用 longphase-to 的 LOH 段補回 AMBER 在高純度漏掉的 BAF 觀測（purple/PurpleLohFill.h）。
     // 預設開啟；--disable-purple-loh-fill 關閉。
     bool purpleLohFill = true;
+    double purpleLohFillMinCoverage = 0.8;  // --purple-loh-fill-min-coverage
     // 以第一輪 phased SNV 的 haplotype 方向 HMM 估擬合段的 BAF，取代逐位點折疊的中位數
     // （purple/PurplePhasedBaf.h）。預設開啟；--disable-purple-phased-baf 關閉。
     bool purplePhasedBaf = true;

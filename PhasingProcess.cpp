@@ -447,6 +447,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
                 }
             }
             purpleLohFill.panelPositions = purple::loadPanelPositions(params.amberLoci);
+            purpleLohFill.minCoverage = params.purpleLohFillMinCoverage;
         }
     }
 
