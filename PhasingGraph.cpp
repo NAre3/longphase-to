@@ -1568,6 +1568,9 @@ void VairiantGraph::exportPhasingResult(PosPhasingResult &posPhasingResult, std:
                     std::replace(genotype.begin(), genotype.end(), '1', '0');
                     phasingResult.genotype.insert(phasingResult.genotype.begin(), genotype);
                     phasingResult.phaseSet.push_back(-1);
+                    // E81: the GT above is a somatic genotype (0|. / .|0); set the flag too so that
+                    // writeResult gives FILTER PASS instead of LP_nonSomatic (FILTER and GT select the same records).
+                    phasingResult.somatic = true;
                 }
                 posPhasingResult.emplace(variantIter->first, phasingResult);
             }
