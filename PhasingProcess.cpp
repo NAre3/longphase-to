@@ -6,6 +6,8 @@
 #include <set>
 
 #include "amber/AmberPipeline.h"
+#include "amber/TumorFilters.h"
+#include "BafEvidence.h"
 #include "amber/SharedScanSink.h"
 #include "purple/PurplePipeline.h"
 #include "purple/PurpleInputAdapter.h"
@@ -137,7 +139,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     std::vector<amber::ContigSink *> amberSinks(chrName.size(), nullptr);
     std::vector<std::string> scanContigs = chrName;
 
-    if(params.amberEnabled()){
+    if(params.amberScanEnabled()){
         amberCfg.lociPath = params.amberLoci;
         amberCfg.bedPath = params.amberExcludedBed;
         amberCfg.tumorBam = params.bamFile.front();
@@ -210,7 +212,7 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         cobaltCfg.minMappingQuality = params.cobaltMinMapQuality;
         cobaltCfg.threads = params.numThreads;
 
-        if(!params.amberEnabled()){
+        if(!params.amberScanEnabled()){
             lp::CpDump::setDir(params.amberCpDumpDir);
         }
 
@@ -248,6 +250,16 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
                     cobaltCfg.minMappingQuality, cobaltCfg.includeDuplicates);
         }
     }
+
+    // ---- --baf-source=vcf／vcf-pon：AMBER evidence 由 readVariantVec 計數（BafEvidence.h）----
+    // 每個 scanIdx 各寫自己的格子，平行迴圈內無共享寫入。
+    const bool bafFromVcf = params.bafSource != "amber";
+    const BafSiteOrigin bafSiteOrigin = bafSiteOriginFromName(params.bafSource);
+    std::vector<lp::ChrBaseRegion> bafExcluded;
+    if(bafFromVcf && !params.amberExcludedBed.empty()){
+        bafExcluded = amber::loadExcludedBed(params.amberExcludedBed);
+    }
+    std::vector<std::vector<amber::PositionEvidence>> vcfEvidence(scanContigs.size());
 
     // loop all chromosome
     #pragma omp parallel for schedule(dynamic) num_threads(params.numThreads)
@@ -310,6 +322,12 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
             delete readVariantVec;
             continue;
         }
+        // 只讀 readVariantVec，不改動它；graph 建構之前取用。
+        if(bafFromVcf){
+            vcfEvidence[scanIdx] = evidenceFromReadVariants(contigName, *snpFile.getVariants(contigName),
+                    *readVariantVec, bafExcluded, bafSiteOrigin,
+                    params.amberMinBaseQuality, params.amberMinMapQuality);
+        }
 
         // create a clip object and prepare to detect Interval
         Clip *clip = new Clip(contigName);
@@ -339,7 +357,8 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     // ---- AMBER postscan ----
     //
     // CP-A3 → CP-A9 與三個 stage 輸出。呼叫的是 amber_port 用的同一組函式。
-    if(params.amberEnabled()){
+    // panel 模式（--baf-source=amber）走這裡；VCF 模式走下一個區塊，postscan 本身不變。
+    if(params.amberScanEnabled()){
         std::cerr << std::endl;
 
         // 每條染色體一個 sink，各自持有自己的計數。兩個計數器都是整數加總，
@@ -370,6 +389,46 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
         std::cerr<< "AMBER postscan ... ";
         amberResult = amber::postscan(amberCfg, amberPrescan.evidence, amberStats);
         std::cerr<< difftime(time(NULL), begin) << "s\n";
+    }else if(params.amberEnabled()){
+        // --baf-source=vcf／vcf-pon：evidence 來自 readVariantVec，沒有 prescan、沒有 ContigSink。
+        std::cerr << std::endl;
+
+        std::vector<amber::PositionEvidence> evidence;
+        for(std::vector<amber::PositionEvidence> &contigEvidence : vcfEvidence){
+            evidence.insert(evidence.end(), std::make_move_iterator(contigEvidence.begin()),
+                    std::make_move_iterator(contigEvidence.end()));
+        }
+        vcfEvidence.clear();
+
+        // 與 panel 模式相同的設定（lociPath 留空）。
+        amberCfg.bedPath = params.amberExcludedBed;
+        amberCfg.tumorBam = params.bamFile.front();
+        amberCfg.outputDir = params.amberOutputDir;
+        amberCfg.writeStageOutputs = !params.amberOutputDir.empty() || !params.purpleEnabled();
+        amberCfg.sampleId = params.amberSampleId;
+        amberCfg.minBaseQuality = params.amberMinBaseQuality;
+        amberCfg.minMappingQuality = params.amberMinMapQuality;
+        amberCfg.threads = params.numThreads;
+
+        // 「after AMBER filters」= postscan 的 indel filter＋四道 filter（CP-A4、CP-A5）後的位點數，
+        // 以 amber/TumorFilters.h 的同一組條件重算，只為這行 log。
+        std::size_t afterFilters = 0;
+        for(const amber::PositionEvidence &pe : evidence){
+            if(pe.indelCount == 0
+                    && pe.readDepth >= amber::DEFAULT_TUMOR_ONLY_MIN_DEPTH
+                    && amber::aboveQualFilter(pe)
+                    && pe.refSupport >= amber::DEFAULT_TUMOR_ONLY_MIN_SUPPORT
+                    && pe.altSupport >= amber::DEFAULT_TUMOR_ONLY_MIN_SUPPORT){
+                ++afterFilters;
+            }
+        }
+
+        begin = time(NULL);
+        std::cerr<< "AMBER postscan ... ";
+        amberResult = amber::postscan(amberCfg, evidence, amber::BamScanStats{});
+        std::cerr<< difftime(time(NULL), begin) << "s\n";
+        std::cerr << "BAF source " << params.bafSource << ": " << evidence.size() << " sites, "
+                  << afterFilters << " after AMBER filters" << std::endl;
     }
 
     // ---- COBALT postscan ----
@@ -446,7 +505,12 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
                     purpleLohFill.lohSpans[chromosome].push_back({segment.start, segment.end});
                 }
             }
-            purpleLohFill.panelPositions = purple::loadPanelPositions(params.amberLoci);
+            if(bafFromVcf){
+                // --baf-source=vcf／vcf-pon：位點清單取自輸入 VCF（het 與 hom 都收），套同一份排除區間。
+                purpleLohFill.panelPositions = lohFillPositionsFromVcf(snpFile, chrName, bafExcluded, bafSiteOrigin);
+            }else{
+                purpleLohFill.panelPositions = purple::loadPanelPositions(params.amberLoci);
+            }
             purpleLohFill.minCoverage = params.purpleLohFillMinCoverage;
         }
     }

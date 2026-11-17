@@ -54,6 +54,7 @@ static const char *CORRECT_USAGE_MESSAGE =
 "AMBER integration arguments (all optional; none given = AMBER disabled):\n"
 "   --amber-loci=NAME                      AmberGermlineSites.38.tsv.gz. enables the AMBER consumer on the shared BAM scan.\n"
 "   --amber-excluded-bed=NAME              tumorOnlyExcludedSnp.38.bed. required together with --amber-loci.\n"
+"   --baf-source=STR                       source of the AMBER evidence: amber (the --amber-loci panel), vcf (germline het SNPs of the input VCF) or vcf-pon (het SNPs with PON origin). default:amber\n"
 "   --amber-output-dir=DIR                 write <sample>.amber.baf.tsv.gz, .amber.qc and .amber.baf.pcf into DIR.\n"
 "   --amber-sample=NAME                    sample id used for the AMBER output file names.\n"
 "   --amber-min-base-quality=Num           AMBER base quality threshold. default:13\n"
@@ -110,6 +111,7 @@ enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, V
        COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY,
        DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR, DISABLE_PURPLE_PHASED_BAF, DISABLE_PURPLE_EXCLUDE_ALLOSOMES,
        DISABLE_PURPLE_LOH_TDF_WINDOW, DISABLE_PURPLE_SCALE_CORRECTION,
+       BAF_SOURCE = 125,  // '}': pinned like the next one, so the sequential values above stay unchanged
        PURPLE_LOH_FILL_MIN_COVERAGE = 126};  // '~': the next enum value would be '1' (49), a short option; getopt_long's result is stored in a char, so it must stay <= 127
 
 static const struct option longopts[] = {
@@ -157,6 +159,7 @@ static const struct option longopts[] = {
     { "purity",               required_argument,  NULL, OPT_PURITY },
     { "amber-loci",           required_argument,  NULL, AMBER_LOCI },
     { "amber-excluded-bed",   required_argument,  NULL, AMBER_EXCLUDED_BED },
+    { "baf-source",           required_argument,  NULL, BAF_SOURCE },
     { "amber-output-dir",     required_argument,  NULL, AMBER_OUTPUT_DIR },
     { "amber-sample",         required_argument,  NULL, AMBER_SAMPLE },
     { "amber-min-base-quality", required_argument, NULL, AMBER_MIN_BASE_QUALITY },
@@ -298,6 +301,7 @@ namespace opt
     // ---- AMBER 整合 ----
     static std::string amberLoci="";
     static std::string amberExcludedBed="";
+    static std::string bafSource="amber";
     static std::string amberOutputDir="";
     static std::string amberSample="";
     static int amberMinBaseQuality=13;
@@ -433,6 +437,14 @@ void PhasingOptions(int argc, char** argv)
             break;
         case AMBER_LOCI: arg >> opt::amberLoci; break;
         case AMBER_EXCLUDED_BED: arg >> opt::amberExcludedBed; break;
+        case BAF_SOURCE:
+            arg >> opt::bafSource;
+            if(opt::bafSource != "amber" && opt::bafSource != "vcf" && opt::bafSource != "vcf-pon"){
+                std::cerr << SUBPROGRAM " invalid baf-source. value: " << opt::bafSource
+                          << "\n please check --baf-source=amber|vcf|vcf-pon\n";
+                die = true;
+            }
+            break;
         case AMBER_OUTPUT_DIR: arg >> opt::amberOutputDir; break;
         case AMBER_SAMPLE: arg >> opt::amberSample; break;
         case AMBER_MIN_BASE_QUALITY: arg >> opt::amberMinBaseQuality; break;
@@ -507,14 +519,16 @@ void PhasingOptions(int argc, char** argv)
     // ---- AMBER 整合的參數檢查 ----
     // 兩個必填旗標「全給」或「全不給」，不接受半套：半套會讓 AMBER 靜默不啟用，
     // 而使用者以為啟用了，結果卻與預期不同。
-    if(opt::amberLoci.empty() != opt::amberExcludedBed.empty()){
+    // --baf-source=vcf／vcf-pon 的 BAF 位點取自輸入 VCF：不需要 --amber-loci，--amber-excluded-bed 選填。
+    const bool bafFromPanel = (opt::bafSource == "amber");
+    if(bafFromPanel && opt::amberLoci.empty() != opt::amberExcludedBed.empty()){
         std::cerr << SUBPROGRAM
                   << ": --amber-loci and --amber-excluded-bed must be given together.\n";
         die = true;
     }
 
     // purity 由 PURPLE 決定，PURPLE 又消費 AMBER 與 COBALT 的結果，所以三者都是必填。
-    if(opt::purpleEnsemblDataDir.empty() || opt::amberLoci.empty() || opt::cobaltGcProfile.empty()){
+    if(opt::purpleEnsemblDataDir.empty() || (bafFromPanel && opt::amberLoci.empty()) || opt::cobaltGcProfile.empty()){
         std::cerr << SUBPROGRAM
                   << ": purity is estimated by PURPLE, which needs --ensembl_data_dir and both the AMBER"
                   << " (--amber-loci) and COBALT (--cobalt-gc-profile) options.\n";
@@ -529,7 +543,7 @@ void PhasingOptions(int argc, char** argv)
         }
     }
 
-    if(!opt::amberLoci.empty()){
+    if(bafFromPanel && !opt::amberLoci.empty()){
         for(const std::string &path : {opt::amberLoci, opt::amberExcludedBed}){
             std::ifstream openFile(path.c_str());
             if(!openFile.is_open()){
@@ -547,6 +561,23 @@ void PhasingOptions(int argc, char** argv)
             die = true;
         }
 
+        if(opt::amberOutputDir.empty() != opt::amberSample.empty()){
+            std::cerr << SUBPROGRAM
+                      << ": --amber-output-dir and --amber-sample must be given together.\n";
+            die = true;
+        }
+    }
+    if(!bafFromPanel){
+        for(const std::string &path : {opt::amberLoci, opt::amberExcludedBed}){
+            if(path.empty()){
+                continue;
+            }
+            std::ifstream openFile(path.c_str());
+            if(!openFile.is_open()){
+                std::cerr << "File " << path << " not exist.\n\n";
+                die = true;
+            }
+        }
         if(opt::amberOutputDir.empty() != opt::amberSample.empty()){
             std::cerr << SUBPROGRAM
                       << ": --amber-output-dir and --amber-sample must be given together.\n";
@@ -809,6 +840,7 @@ int PhasingMain(int argc, char** argv, std::string in_version)
 
     ecParams.amberLoci = opt::amberLoci;
     ecParams.amberExcludedBed = opt::amberExcludedBed;
+    ecParams.bafSource = opt::bafSource;
     ecParams.amberOutputDir = opt::amberOutputDir;
     ecParams.amberSampleId = opt::amberSample;
     ecParams.amberMinBaseQuality = opt::amberMinBaseQuality;

@@ -59,6 +59,10 @@ struct PhasingParameters
     // 給了一部分而缺另一部分即報錯，不默默半啟用。
     std::string amberLoci = "";
     std::string amberExcludedBed = "";
+    // AMBER evidence 的來源：amber（--amber-loci panel，走 AMBER 的 prescan＋共用走訪）、
+    // vcf（輸入 VCF 中 originType != SOMATIC 的 het SNP）、vcf-pon（originType == PON 的 het SNP）。
+    // 後兩者由 readVariantVec 計數（BafEvidence.h），不跑 AMBER prescan。
+    std::string bafSource = "amber";
     std::string amberOutputDir = "";
     std::string amberSampleId = "";
     int amberMinBaseQuality = 13;   // amber::DEFAULT_MIN_BASE_QUALITY
@@ -104,7 +108,10 @@ struct PhasingParameters
     // 預設開啟；--disable-purple-scale-correction 關閉。
     bool purpleScaleCorrection = true;
 
-    bool amberEnabled() const { return !amberLoci.empty(); }
+    // AMBER prescan／ContigSink 只在 panel 模式啟用。
+    bool amberScanEnabled() const { return bafSource == "amber" && !amberLoci.empty(); }
+    // AMBER postscan（以及 PURPLE）在 panel 模式或 VCF 模式都啟用。
+    bool amberEnabled() const { return amberScanEnabled() || bafSource != "amber"; }
     bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }
     // PURPLE 需要 AMBER 與 COBALT 兩邊的結果，缺一不可。
     bool purpleEnabled() const {

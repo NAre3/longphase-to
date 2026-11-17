@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "AmberOutput.h"
+#include "../common/ChrBaseRegion.h"
 #include "BamEvidenceReader.h"
 #include "Segmentation.h"
 #include "PositionEvidence.h"
@@ -54,6 +55,10 @@ struct PrescanResult
 // amber_port 的 main 是這三段的薄包裝，**與整合版呼叫同一組函式**。
 // 因此 amber_port 的行為未因整合而改變。
 PrescanResult prescan(const PipelineConfig &cfg);
+
+// tumor-only blacklist BED 載入（CP-A2 用）：0-based 半開區間轉成 1-based 含端點。
+// 也供 longphase-to 的 --baf-source=vcf／vcf-pon 套用同一份排除區間。
+std::vector<lp::ChrBaseRegion> loadExcludedBed(const std::string &path);
 
 // postscan 的產出。這三項就是三個 stage 輸出的記憶體來源：
 //   bafs          -> <sample>.amber.baf.tsv.gz

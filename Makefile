@@ -10,7 +10,7 @@ CPPFLAGS = -std=c++17 -g -Wall -O3 -fopenmp
 LDFLAGS  =
 LIBS     =
 
-OBJ = Haplotag.o ParsingBam.o Util.o HaplotagProcess.o PhasingProcess.o Phasing.o PhasingGraph.o MethylXgbModel.o MethylXgbFeatureExtraction.o ModCall.o ModCallParsingBam.o ModCallProcess.o main.o $(AMBER_OBJ)
+OBJ = Haplotag.o ParsingBam.o Util.o HaplotagProcess.o PhasingProcess.o Phasing.o PhasingGraph.o MethylXgbModel.o MethylXgbFeatureExtraction.o ModCall.o ModCallParsingBam.o ModCallProcess.o BafEvidence.o main.o $(AMBER_OBJ)
 
 # ---- AMBER 整合 ----
 #

@@ -28,11 +28,13 @@
 #include "Segmentation.h"
 #include "TumorFilters.h"
 
-namespace {
+#include "AmberPipeline.h"
+
+namespace amber {
 
 // 對應 AmberUtils.loadBedFromResource：BED 為 0-based 半開區間，
 // 載入時 start+1 轉成 1-based 含端點，end 不變。
-std::vector<lp::ChrBaseRegion> loadBed(const std::string &path){
+std::vector<lp::ChrBaseRegion> loadExcludedBed(const std::string &path){
     std::ifstream in(path);
     if(!in){
         throw std::runtime_error("unable to open bed: " + path);
@@ -58,11 +60,6 @@ std::vector<lp::ChrBaseRegion> loadBed(const std::string &path){
     return regions;
 }
 
-}
-
-#include "AmberPipeline.h"
-
-namespace amber {
 
 // 以下兩個函式的內容是從 AmberApplication.cpp 的 main() **逐字搬過來的**，
 // 只做了兩件事：
@@ -98,7 +95,7 @@ PrescanResult prescan(const PipelineConfig &cfg)
     // 對應 hetLociTumorOnly()：對每個 site 掃過全部排除區間，命中即計入 numBlackListed。
     // Java 端用的是逐區間線性掃描並在命中時 break，區間只有 32 個，這裡照做，
     // 不改成區間樹——保真度階段以行為一致為先，效能是第二階段的事。
-    const std::vector<lp::ChrBaseRegion> excluded = loadBed(bedPath);
+    const std::vector<lp::ChrBaseRegion> excluded = loadExcludedBed(bedPath);
 
     std::vector<amber::AmberSite> retained;
     retained.reserve(sites.size());
