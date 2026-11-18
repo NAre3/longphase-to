@@ -2,6 +2,7 @@
 #include "PhasingGraph.h"
 #include "ParsingBam.h"
 #include "SomaticRefinementPolicy.h"
+#include "GermlineFilter.h"
 
 #include <set>
 
@@ -480,8 +481,11 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
             }
         }
     }
+    // germline 後置過濾要用寫進 cnv.somatic.tsv 的同一份 copy numbers（不影響 PURPLE 輸出）
+    std::vector<purple::PurpleCopyNumber> purpleCopyNumbers;
     const purple::BestFit purpleFit = purple::runFromInputs(purpleCfg, purpleInputs, purpleLengths,
-            params.purpleLohFill ? &purpleLohFill : nullptr, params.purplePhasedBaf ? &phased : nullptr);
+            params.purpleLohFill ? &purpleLohFill : nullptr, params.purplePhasedBaf ? &phased : nullptr,
+            params.germlineFilter ? &purpleCopyNumbers : nullptr);
     std::cerr<< difftime(time(NULL), purpleBegin) << "s\n";
 
     // purity 沿用舊介面的名稱，值是 tumor DNA fraction：TDF = p·ψ / (p·ψ + 2(1 − p))，
@@ -580,6 +584,21 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
 
     std::cerr<< "\nparsing total:  " << difftime(time(NULL), begin) << "s\n";
 
+    // ---- germline 後置過濾（GermlineFilter.h）：PURPLE 之後、寫 VCF 之前，用同一份 BAM 與 PURPLE 結果。
+    // 關閉時（--disable-germline-filter）不呼叫，寫檔走原路徑。
+    GermlineRelabelSet germlineRelabel;
+    if(params.germlineFilter){
+        std::time_t germlineBegin = time(NULL);
+        germline_filter::Inputs germlineInputs;
+        germlineInputs.purpleAvailable = params.purpleEnabled();
+        germlineInputs.purplePurity = purplePurity;
+        germlineInputs.copyNumbers = &purpleCopyNumbers;
+        germlineInputs.highPurity = highPurity;
+        germline_filter::run(params, snpFile, chrPhasingResult, germlineInputs, germlineRelabel);
+        snpFile.setGermlineRelabel(&germlineRelabel);
+        std::cerr << "germline filter total: " << difftime(time(NULL), germlineBegin) << "s\n";
+    }
+
     // write result to file
     GenomicWriter genomicWriter(params.resultPrefix, chrName, chrInfoMap);
     genomicWriter.measureTime("LOH", params.outputLOH, [&]() { genomicWriter.writeLOH(); });
@@ -587,6 +606,9 @@ PhasingProcess::PhasingProcess(PhasingParameters params)
     genomicWriter.measureTime("LGE", params.outputLGE, [&]() { genomicWriter.writeLGE(); });
     genomicWriter.measureTime("GE", params.outputGE, [&]() { genomicWriter.writeAllEvents(); });
     genomicWriter.measureTime("SNP", true, [&]() { snpFile.writeResult(chrPhasingResult, purity); });
+    if(params.germlineFilter && germlineRelabel.gtFallback > 0){
+        std::cerr << "germline filter: " << germlineRelabel.gtFallback << " relabeled records had a phased input GT, written as 0/1\n";
+    }
     genomicWriter.measureTime("SV", params.svFile != "", [&]() { svFile.writeResult(chrPhasingResult, purity); });
     genomicWriter.measureTime("MOD", params.modFile != "", [&]() { modFile.writeResult(chrPhasingResult, purity); });
 

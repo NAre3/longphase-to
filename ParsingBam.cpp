@@ -422,26 +422,30 @@ static void splitOnClassicSpace(const std::string &input, std::vector<std::strin
     out.resize(n);
 }
 
+void BaseVairantParser::noteHeaderLine(const std::string &input){
+    // avoid double definition
+    for (auto formatDef = formatDefs.begin(); formatDef != formatDefs.end(); ++formatDef){
+        if (formatDef->is_present) {
+            continue;
+        }
+        std::string format_string = "##FORMAT=<ID=" + formatDef->id + ",";
+        if( input.substr(0, 16) == format_string ){
+            formatDef->is_present = true;
+        }
+    }
+    // detect existing LP_nonSomatic and LP_PON FILTER definition in header
+    if (input.rfind("##FILTER=<ID=LP_nonSomatic", 0) == 0) {
+        hasLPNonSomaticFilter = true;
+    }
+    if (input.rfind("##FILTER=<ID=LP_PON", 0) == 0) {
+        hasLPPONFilter = true;
+    }
+}
+
 void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, ChrPhasingResult &chrPhasingResult){
     // header
     if( input.substr(0, 2) == "##" ){
-        // avoid double definition
-        for (auto formatDef = formatDefs.begin(); formatDef != formatDefs.end(); ++formatDef){
-            if (formatDef->is_present) {
-                continue;
-            }
-            std::string format_string = "##FORMAT=<ID=" + formatDef->id + ",";
-            if( input.substr(0, 16) == format_string ){
-                formatDef->is_present = true;
-            }
-        }
-        // detect existing LP_nonSomatic and LP_PON FILTER definition in header
-        if (input.rfind("##FILTER=<ID=LP_nonSomatic", 0) == 0) {
-            hasLPNonSomaticFilter = true;
-        }
-        if (input.rfind("##FILTER=<ID=LP_PON", 0) == 0) {
-            hasLPPONFilter = true;
-        }
+        noteHeaderLine(input);
         resultVcf << input << "\n";
     }
     else if ( input.substr(0, 6) == "#CHROM" || input.substr(0, 6) == "#chrom" ){
@@ -462,11 +466,36 @@ void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, 
             if (!params->disableRefineSomatic && !hasLPPONFilter){
                 resultVcf << "##FILTER=<ID=LP_PON,Description=\"PON variant tagged by longphase-to\">\n";
             }
+            // germline 後置過濾啟用時才宣告（GermlineFilter.h）
+            if (germlineRelabel != nullptr){
+                resultVcf << "##FILTER=<ID=" << kGermlineFilterTag
+                          << ",Description=\"PASS SNV judged germline by longphase-to after PURPLE (same-haplotype ALT fraction, PURPLE-expected AF, or gnomAD AC>=2)\">\n";
+            }
             commandLine = true;
         }
         resultVcf << input << "\n";
     }
     else{
+        if( buildDataLine(input, chrPhasingResult, writeLineBuf) ){
+            resultVcf.write(writeLineBuf.data(), writeLineBuf.size());
+        }
+    }
+}
+
+// 整行比對作者的 GT 挑選 regex：/0\|0/ || /\.\|0/ || /0\|\./（知識庫 lpto-somatic-call-counting）
+bool lineMatchesSomaticGt(const std::string &line){
+    return line.find("0|0") != std::string::npos || line.find(".|0") != std::string::npos
+        || line.find("0|.") != std::string::npos;
+}
+
+static std::string upperCopy(const std::string &s){
+    std::string out(s);
+    for(char &c : out){ c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); }
+    return out;
+}
+
+bool BaseVairantParser::buildDataLine(std::string &input, ChrPhasingResult &chrPhasingResult, std::string &outLine){
+    {
         // same tokens as std::istream_iterator<std::string> on an istringstream (classic-locale
         // whitespace), written into a vector reused across lines
         splitOnClassicSpace(input, writeFields);
@@ -482,7 +511,7 @@ void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, 
         }
         std::vector<std::string> &fields = shortLine ? shortFields : writeFields;
         if( fields.size() == 0 )
-            return;
+            return false;
         FormatSample formatSample(fields);
 
         // if flag already exist, reset flag info
@@ -504,6 +533,13 @@ void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, 
             phasedCount = phasingResultPtr->genotype.size();
             haplotypeIter = phasingResultPtr->genotype.begin();
         }
+        // germline 後置過濾判為 germline 的 SNV：GT 欄照「未 phased」紀錄的寫法，FILTER 改標籤（GermlineFilter.h）
+        const bool relabel = germlineRelabel != nullptr && fields.size() > ALT
+            && germlineRelabel->contains(fields[CHROM], pos, upperCopy(fields[REF]), upperCopy(fields[ALT]));
+        if(relabel){
+            phasingResultPtr = nullptr;
+            phasedCount = 0;
+        }
 
         // refine FILTER field based on PON and somatic status if not disabled
         if (!params->disableRefineSomatic) {
@@ -518,6 +554,9 @@ void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, 
             } else {
                 filterField = "LP_nonSomatic";
             }
+        }
+        if(relabel){
+            fields[FILTER] = kGermlineFilterTag;
         }
 
         for(size_t i = 0; i < PHASING_RESULT_SIZE; ++i) {
@@ -535,16 +574,87 @@ void BaseVairantParser::writeLine(std::string &input, std::ofstream &resultVcf, 
         }
 
         // build the whole line, then hand it to the stream once (same bytes, same order)
-        std::string &outLine = writeLineBuf;
-        outLine.clear();
-        for(std::vector<std::string>::iterator fieldIter = fields.begin(); fieldIter != fields.end(); ++fieldIter){
-            if( fieldIter != fields.begin() )
-                outLine.push_back('\t');
-            outLine.append(*fieldIter);
+        auto joinFields = [&](){
+            outLine.clear();
+            for(std::vector<std::string>::iterator fieldIter = fields.begin(); fieldIter != fields.end(); ++fieldIter){
+                if( fieldIter != fields.begin() )
+                    outLine.push_back('\t');
+                outLine.append(*fieldIter);
+            }
+            outLine.push_back('\n');
+        };
+        joinFields();
+        // 防呆：輸入 GT 本身是 phased 寫法時，改寫後仍會被 GT 挑選 regex 挑到；這時 GT 改為 0/1
+        if(relabel && lineMatchesSomaticGt(outLine)){
+            formatSample.setGTFlagAndValue("GT", "0/1", "");
+            germlineRelabel->noteGtFallback();
+            joinFields();
         }
-        outLine.push_back('\n');
-        resultVcf.write(outLine.data(), outLine.size());
+        return true;
     }
+}
+
+void BaseVairantParser::scanOutputRecords(const std::string &variantFile, ChrPhasingResult &chrPhasingResult,
+        const std::function<void(const std::string &input, const std::string &outLine)> &onRecord){
+    // 用一份獨立的 header 狀態模擬 writeLine：輸出行與之後真正寫檔時逐位相同（不含改標籤），跑完還原。
+    const FormatDefs savedDefs = formatDefs;
+    const bool savedNonSomatic = hasLPNonSomaticFilter;
+    const bool savedPon = hasLPPONFilter;
+    const GermlineRelabelSet *savedRelabel = germlineRelabel;
+    germlineRelabel = nullptr;
+    std::string outLine;
+    auto handle = [&](std::string &input){
+        if( input.substr(0, 2) == "##" ){
+            noteHeaderLine(input);
+        }
+        else if( input.substr(0, 6) == "#CHROM" || input.substr(0, 6) == "#chrom" ){
+            return;
+        }
+        else if( buildDataLine(input, chrPhasingResult, outLine) ){
+            onRecord(input, outLine);
+        }
+    };
+    if( variantFile.find("gz") != std::string::npos ){
+        // 與 compressInput 相同：gzread（也能讀未壓縮檔）、以 '\n' 切行
+        gzFile file = gzopen(variantFile.c_str(), "rb");
+        if(!file){
+            std::cerr << "Fail to open vcf: " << variantFile << "\n";
+            exit(EXIT_FAILURE);
+        }
+        std::string pending;
+        std::vector<char> buffer(1 << 20);
+        while(true){
+            int len = gzread(file, buffer.data(), buffer.size());
+            if(len < 0){
+                int err;
+                fprintf(stderr, "Error: %s.\n", gzerror(file, &err));
+                exit(EXIT_FAILURE);
+            }
+            if(len == 0) break;
+            pending.append(buffer.data(), len);
+            size_t start = 0;
+            for(size_t eol; (eol = pending.find('\n', start)) != std::string::npos; start = eol + 1){
+                std::string input = pending.substr(start, eol - start);
+                handle(input);
+            }
+            pending.erase(0, start);
+        }
+        gzclose(file);
+    }
+    else if( variantFile.find("vcf") != std::string::npos ){
+        // 與 unCompressInput 相同：getline、略過空行
+        std::ifstream originVcf(variantFile);
+        std::string input;
+        while( std::getline(originVcf, input) ){
+            if( input != "" ){
+                handle(input);
+            }
+        }
+    }
+    formatDefs = savedDefs;
+    hasLPNonSomaticFilter = savedNonSomatic;
+    hasLPPONFilter = savedPon;
+    germlineRelabel = savedRelabel;
 }
 
 bool SnpParser::checkType(const VariantType type) const {

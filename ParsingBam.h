@@ -13,6 +13,7 @@
 #include <htslib/vcfutils.h>
 
 #include <zlib.h>
+#include <functional>
 #include <random>
 
 #include "amber/SharedScanSink.h"
@@ -103,6 +104,25 @@ struct FormatInfo {
 
 using FormatDefs = std::vector<FormatInfo>;
 
+// germline 後置過濾的改標籤集合（GermlineFilter.cpp 填入，writeLine 讀取）
+extern const char *const kGermlineFilterTag;
+bool lineMatchesSomaticGt(const std::string &line);
+class GermlineRelabelSet {
+    public:
+        // key：chrom → 0-based pos → (REF, ALT)，REF／ALT 為大寫
+        std::map<std::string, std::map<int, std::vector<std::pair<std::string, std::string>>>> sites;
+        bool contains(const std::string &chrom, int pos0, const std::string &ref, const std::string &alt) const {
+            auto c = sites.find(chrom);
+            if(c == sites.end()) return false;
+            auto p = c->second.find(pos0);
+            if(p == c->second.end()) return false;
+            for(const auto &ra : p->second){ if(ra.first == ref && ra.second == alt) return true; }
+            return false;
+        }
+        void noteGtFallback() const { ++gtFallback; }
+        mutable long gtFallback = 0;
+};
+
 class BaseVairantParser{
 
     protected:
@@ -124,6 +144,11 @@ class BaseVairantParser{
         // scratch reused by writeLine across lines (fields of the current line, output line)
         std::vector<std::string> writeFields;
         std::string writeLineBuf;
+        // 非 nullptr 時：header 宣告 LP_germlineHG，集合內的紀錄改標籤（GermlineFilter.h）
+        const GermlineRelabelSet *germlineRelabel = nullptr;
+        void noteHeaderLine(const std::string &input);
+        // 資料行：產生與寫檔相同的輸出行（含結尾換行）；空行回傳 false
+        bool buildDataLine(std::string &input, ChrPhasingResult &chrPhasingResult, std::string &outLine);
 
     public:
         BaseVairantParser();
@@ -136,6 +161,10 @@ class BaseVairantParser{
         void compressInput(std::string variantFile, std::string resultFile, ChrPhasingResult &chrPhasingResult);
         void unCompressInput(std::string variantFile, std::string resultFile, ChrPhasingResult &chrPhasingResult);
         virtual void writeLine(std::string &input, std::ofstream &resultVcf, ChrPhasingResult &chrPhasingResult);
+        // 依序模擬每筆資料行的輸出（不寫檔、不改標籤）：onRecord(輸入行, 輸出行)
+        void scanOutputRecords(const std::string &variantFile, ChrPhasingResult &chrPhasingResult,
+                const std::function<void(const std::string &input, const std::string &outLine)> &onRecord);
+        void setGermlineRelabel(const GermlineRelabelSet *relabel){ germlineRelabel = relabel; }
 };
 
 class SnpParser : public BaseVairantParser{

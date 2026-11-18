@@ -150,6 +150,10 @@ void writeQc(const std::string &path, const InputData &inputs, const BestFit &be
 
 }
 
+std::string formatNumber(double value){ return number(value); }
+double minorAlleleCopyNumber(const PurpleCopyNumber &copyNumber){ return minor(copyNumber); }
+double majorAlleleCopyNumber(const PurpleCopyNumber &copyNumber){ return major(copyNumber); }
+
 void writeCoreOutputs(const std::string &outputDir, const InputData &inputs,
         const std::vector<FittedPurity> &fits, const BestFit &bestFit,
         const std::vector<ObservedRegion> &fittedRegions,

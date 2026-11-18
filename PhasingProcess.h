@@ -103,6 +103,11 @@ struct PhasingParameters
     // 段格點尺度檢查與改值（purple/PurpleScaleCheck.h），只在 LOH-TDF 窗有效時改值。
     // 預設開啟；--disable-purple-scale-correction 關閉。
     bool purpleScaleCorrection = true;
+    // PURPLE 之後、寫 VCF 之前的 germline 後置過濾（GermlineFilter.h）。預設開啟；--disable-germline-filter 關閉。
+    // gnomAD 資源檔由 --germline-gnomad 傳入，沒給時 gnomAD 部分不作用。
+    bool germlineFilter = true;
+    std::string germlineGnomad = "";
+    std::string germlineFilterDump = "";
 
     bool amberEnabled() const { return !amberLoci.empty(); }
     bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }

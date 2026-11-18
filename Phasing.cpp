@@ -79,7 +79,15 @@ static const char *CORRECT_USAGE_MESSAGE =
 "                                          (on by default with the phased BAF; it writes <sample>.purple.loh_tdf.tsv).\n"
 "   --disable-purple-scale-correction      do not refit at about twice the selected ploidy when the segment copy numbers sit on\n"
 "                                          the integer lattice of twice the ploidy (ploidy >= 2, within the LOH TDF window).\n"
-"                                          (on by default; it writes <sample>.purple.scale_check.tsv).\n\n"
+"                                          (on by default; it writes <sample>.purple.scale_check.tsv).\n"
+"   --disable-germline-filter              do not relabel PASS SNVs judged germline after PURPLE (FILTER LP_germlineHG).\n"
+"                                          (the filter is on by default; TDF <= 0.9: same-haplotype ALT fraction (H) and\n"
+"                                          PURPLE-expected AF (G), gnomAD AC>=2 only where both are undecidable;\n"
+"                                          TDF > 0.9: gnomAD AC>=2 on the GT-selected SNVs only)\n"
+"   --germline-gnomad=FILE                 gnomAD sites VCF (bgzip + tabix, INFO AC) for the germline filter.\n"
+"                                          without it the gnomAD part is skipped.\n"
+"   --germline-filter-dump=FILE            write per-site diagnostics of the germline filter to FILE (and FILE.ctrl.tsv,\n"
+"                                          FILE.exclude.tsv, FILE.err.tsv).\n\n"
 
 "parse alignment arguments:\n"
 "   -q, --mappingQuality=Num               filter alignment if mapping quality is lower than threshold. default:1\n"
@@ -110,7 +118,9 @@ enum { OPT_HELP = 1 , DOT_FILE, SV_FILE, MOD_FILE, IS_ONT, IS_PB, PHASE_INDEL, V
        COBALT_OUTPUT_DIR, COBALT_SAMPLE, COBALT_MIN_MAP_QUALITY,
        DISABLE_PURPLE_LOH_FILL, PURPLE_CPDUMP_DIR, DISABLE_PURPLE_PHASED_BAF, DISABLE_PURPLE_EXCLUDE_ALLOSOMES,
        DISABLE_PURPLE_LOH_TDF_WINDOW, DISABLE_PURPLE_SCALE_CORRECTION,
-       PURPLE_LOH_FILL_MIN_COVERAGE = 126};  // '~': the next enum value would be '1' (49), a short option; getopt_long's result is stored in a char, so it must stay <= 127
+       PURPLE_LOH_FILL_MIN_COVERAGE = 126,
+       // values between the short options' characters; getopt_long returns them only for these long options
+       DISABLE_GERMLINE_FILTER = 71, GERMLINE_GNOMAD = 72, GERMLINE_FILTER_DUMP = 73};  // '~': the next enum value would be '1' (49), a short option; getopt_long's result is stored in a char, so it must stay <= 127
 
 static const struct option longopts[] = {
     { "help",                 no_argument,        NULL, OPT_HELP },
@@ -178,6 +188,9 @@ static const struct option longopts[] = {
     { "disable-purple-exclude-allosomes", no_argument, NULL, DISABLE_PURPLE_EXCLUDE_ALLOSOMES },
     { "disable-purple-loh-tdf-window", no_argument, NULL, DISABLE_PURPLE_LOH_TDF_WINDOW },
     { "disable-purple-scale-correction", no_argument, NULL, DISABLE_PURPLE_SCALE_CORRECTION },
+    { "disable-germline-filter", no_argument,     NULL, DISABLE_GERMLINE_FILTER },
+    { "germline-gnomad",      required_argument,  NULL, GERMLINE_GNOMAD },
+    { "germline-filter-dump", required_argument,  NULL, GERMLINE_FILTER_DUMP },
     { NULL, 0, NULL, 0 }
 };
 
@@ -324,6 +337,10 @@ namespace opt
     static bool purpleExcludeAllosomes=true;
     static bool purpleLohTdfWindow=true;
     static bool purpleScaleCorrection=true;
+    // ---- germline 後置過濾 ----
+    static bool germlineFilter=true;
+    static std::string germlineGnomad="";
+    static std::string germlineFilterDump="";
 
     static bool outputLOH = false;
     static bool outputSGE = false;
@@ -451,6 +468,9 @@ void PhasingOptions(int argc, char** argv)
         case DISABLE_PURPLE_EXCLUDE_ALLOSOMES: opt::purpleExcludeAllosomes=false; break;
         case DISABLE_PURPLE_LOH_TDF_WINDOW: opt::purpleLohTdfWindow=false; break;
         case DISABLE_PURPLE_SCALE_CORRECTION: opt::purpleScaleCorrection=false; break;
+        case DISABLE_GERMLINE_FILTER: opt::germlineFilter=false; break;
+        case GERMLINE_GNOMAD: arg >> opt::germlineGnomad; break;
+        case GERMLINE_FILTER_DUMP: arg >> opt::germlineFilterDump; break;
         case COBALT_OUTPUT_DIR: arg >> opt::cobaltOutputDir; break;
         case COBALT_SAMPLE: arg >> opt::cobaltSample; break;
         case COBALT_MIN_MAP_QUALITY: arg >> opt::cobaltMinMapQuality; break;
@@ -832,6 +852,9 @@ int PhasingMain(int argc, char** argv, std::string in_version)
     ecParams.purpleLohTdfWindow = opt::purpleLohTdfWindow;
     ecParams.purpleScaleCorrection = opt::purpleScaleCorrection;
     ecParams.cobaltMinMapQuality = opt::cobaltMinMapQuality;
+    ecParams.germlineFilter = opt::germlineFilter;
+    ecParams.germlineGnomad = opt::germlineGnomad;
+    ecParams.germlineFilterDump = opt::germlineFilterDump;
 
     PhasingProcess processor(ecParams);
 

@@ -26,7 +26,8 @@ InputData loadInputs(const PipelineConfig &cfg)
 }
 
 BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
-        const ChromosomeLengths &lengths, const LohFillInput *lohFill, const PhasedSnvMap *phased)
+        const ChromosomeLengths &lengths, const LohFillInput *lohFill, const PhasedSnvMap *phased,
+        std::vector<PurpleCopyNumber> *copyNumbersOut)
 {
     // 這個函式的內容原本是 PurpleApplication.cpp 的 main() 主體。
     // 抽出時只改了取值來源（argv -> cfg），沒有改動任何呼叫順序或引數。
@@ -127,6 +128,7 @@ BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
               << inputs.ratios.size() << " ratio, " << inputs.amberPcf.size() << " Amber PCF, "
               << inputs.cobaltTumorPcf.size() << " Cobalt PCF, " << segments.size() << " support segments, "
               << observed.size() << " observed regions, " << fits.size() << " purity/ploidy candidates\n";
+    if(copyNumbersOut != nullptr){ *copyNumbersOut = copyNumbers; }
     return bestFit;
 }
 

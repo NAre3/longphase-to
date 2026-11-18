@@ -65,9 +65,11 @@ InputData loadInputs(const PipelineConfig &cfg);
 // phased 非 nullptr 時，擬合段的 BAF 改用 phased SNV 的 haplotype 方向 HMM（PurplePhasedBaf.h），
 // 擬合與擬合段的 copy number 以 0.5 作為平衡段的期望 BAF；非擬合段與 aneuploid 判斷維持原 BAF。
 // 回傳最佳解（與寫出的 purity.tsv 同一組 purity／ploidy）。
+// copyNumbersOut 非 nullptr 時，另外交回寫進 cnv.somatic.tsv 的同一份 copy numbers（germline 後置過濾用，
+// 不影響任何輸出）。
 BestFit runFromInputs(const PipelineConfig &cfg, const InputData &inputs,
         const ChromosomeLengths &lengths, const LohFillInput *lohFill = nullptr,
-        const PhasedSnvMap *phased = nullptr);
+        const PhasedSnvMap *phased = nullptr, std::vector<PurpleCopyNumber> *copyNumbersOut = nullptr);
 
 // purple_port 的路徑：讀 .fai 取長度，載入五個 stage 檔案，然後跑完。
 void run(const PipelineConfig &cfg, const LohFillInput *lohFill = nullptr);
