@@ -155,7 +155,7 @@ struct PurpleCopyNumber {
 };
 
 struct SummaryContext {
-    int deletedGenes=0;
+    int deletedGenes=0;   // -1: not computed (no Ensembl data cache given)
     double lohPercent=0;
     double polyclonalProportion=0;
     bool wholeGenomeDuplication=false;

@@ -106,9 +106,9 @@ struct PhasingParameters
 
     bool amberEnabled() const { return !amberLoci.empty(); }
     bool cobaltEnabled() const { return !cobaltGcProfile.empty(); }
-    // PURPLE 需要 AMBER 與 COBALT 兩邊的結果，缺一不可。
+    // PURPLE 需要 AMBER 與 COBALT 兩邊的結果，缺一不可。Ensembl cache 選填（只用於 QC 計數）。
     bool purpleEnabled() const {
-        return !purpleEnsemblDataDir.empty() && amberEnabled() && cobaltEnabled();
+        return amberEnabled() && cobaltEnabled();
     }
 };
 

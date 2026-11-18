@@ -143,7 +143,7 @@ void writeQc(const std::string &path, const InputData &inputs, const BestFit &be
     out << "QCStatus\t" << summary.qcStatus << "\nMethod\t" << bestFit.method
         << "\nCopyNumberSegments\t" << copyNumbers.size() << "\nUnsupportedCopyNumberSegments\t0\nPurity\t" << number(bestFit.fit.purity)
         << "\nAmberGender\t" << genderName(inputs.amberGender) << "\nCobaltGender\t" << genderName(inputs.cobaltGender)
-        << "\nDeletedGenes\t" << summary.deletedGenes << "\nContamination\t" << number(inputs.contamination)
+        << "\nDeletedGenes\t" << (summary.deletedGenes < 0 ? std::string("NA") : std::to_string(summary.deletedGenes)) << "\nContamination\t" << number(inputs.contamination)
         << "\nGermlineAberrations\tNONE\nAmberMeanDepth\t" << inputs.averageTumorDepth << "\nLohPercent\t" << number(summary.lohPercent)
         << "\nTincLevel\t0.0000\n";
 }

@@ -64,7 +64,7 @@ static const char *CORRECT_USAGE_MESSAGE =
 "   --cobalt-output-dir=DIR                write <sample>.cobalt.ratio.tsv.gz, .cobalt.ratio.pcf and .cobalt.gc.median.tsv.\n"
 "   --cobalt-sample=NAME                   sample id used for the COBALT output file names.\n"
 "   --cobalt-min-map-quality=Num           COBALT mapping quality threshold. default:10\n"
-"   --ensembl_data_dir=DIR                 Ensembl data cache for PURPLE. required, together with the AMBER and COBALT options.\n"
+"   --ensembl_data_dir=DIR                 Ensembl data cache for PURPLE. optional: used only for the DeletedGenes QC count.\n"
 "   --purple-output-dir=DIR                write the six PURPLE core outputs.\n"
 "   --purple-sample=NAME                   sample id used for the PURPLE output file names. default: --amber-sample\n"
 "   --disable-purple-loh-fill              do not fill AMBER BAF observations in longphase-to LOH segments before PURPLE fitting.\n"
@@ -513,10 +513,11 @@ void PhasingOptions(int argc, char** argv)
         die = true;
     }
 
-    // purity 由 PURPLE 決定，PURPLE 又消費 AMBER 與 COBALT 的結果，所以三者都是必填。
-    if(opt::purpleEnsemblDataDir.empty() || opt::amberLoci.empty() || opt::cobaltGcProfile.empty()){
+    // purity 由 PURPLE 決定，PURPLE 又消費 AMBER 與 COBALT 的結果，所以兩者都是必填。
+    // --ensembl_data_dir 選填：只用於 QC 的 deleted-gene 計數，不影響 purity／ploidy。
+    if(opt::amberLoci.empty() || opt::cobaltGcProfile.empty()){
         std::cerr << SUBPROGRAM
-                  << ": purity is estimated by PURPLE, which needs --ensembl_data_dir and both the AMBER"
+                  << ": purity is estimated by PURPLE, which needs both the AMBER"
                   << " (--amber-loci) and COBALT (--cobalt-gc-profile) options.\n";
         die = true;
     }

@@ -161,7 +161,8 @@ std::string boolean(bool value){ return value ? "true" : "false"; }
 SummaryContext buildSummaryContext(const InputData &inputs, const BestFit &bestFit,
         const std::vector<PurpleCopyNumber> &copyNumbers, const std::string &ensemblDataDir){
     SummaryContext result;
-    result.deletedGenes = deletedGenes(copyNumbers, ensemblDataDir);
+    // The Ensembl cache is used only for this QC gene count; without it the count is not computed (NA).
+    result.deletedGenes = ensemblDataDir.empty() ? -1 : deletedGenes(copyNumbers, ensemblDataDir);
     result.lohPercent = lohPercent(copyNumbers);
     result.polyclonalProportion = polyclonalProportion(copyNumbers);
     result.wholeGenomeDuplication = bestFit.method == "NORMAL" && wholeGenomeDuplication(copyNumbers);
@@ -189,7 +190,7 @@ void dumpSummaryContext(const InputData &inputs, const BestFit &bestFit,
             lp::CpDump::num(bestFit.fit.purity) + "\t" + lp::CpDump::num(bestFit.fit.normFactor) + "\t" +
             lp::CpDump::num(bestFit.fit.ploidy) + "\t" + lp::CpDump::num(bestFit.fit.score) + "\t" +
             lp::CpDump::num(bestFit.fit.diploidProportion) + "\t" + lp::CpDump::num(bestFit.fit.somaticPenalty) +
-            "\t[" + checkpointStatus + "]\t" + std::to_string(copyNumbers.size()) + "\t0\t" + std::to_string(summary.deletedGenes) + "\t" +
+            "\t[" + checkpointStatus + "]\t" + std::to_string(copyNumbers.size()) + "\t0\t" + (summary.deletedGenes < 0 ? std::string("NA") : std::to_string(summary.deletedGenes)) + "\t" +
             lp::CpDump::num(inputs.contamination) + "\t" + std::to_string(inputs.averageTumorDepth) + "\t" +
             genderName(inputs.cobaltGender) + "\t" + genderName(inputs.amberGender) + "\t[NONE]\t" +
             lp::CpDump::num(summary.lohPercent) + "\t0\t" + lp::CpDump::num(summary.polyclonalProportion) + "\t" +
